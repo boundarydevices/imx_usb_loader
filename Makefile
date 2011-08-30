@@ -19,4 +19,7 @@ imx_usb: imx_usb.o imx_usb.lds
 	gcc -o $@ $@.o -T $@.lds -lusb-1.0
 
 
+clean:
+       rm imx_usb imx_usb.lds imx_usb.o
+
 all: imx_usb
