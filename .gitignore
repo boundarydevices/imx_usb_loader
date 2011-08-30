@@ -1,3 +1,4 @@
 *.o
 imx_usb
 imx_usb.lds
+*.bin
