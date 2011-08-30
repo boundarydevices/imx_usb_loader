@@ -1,10 +1,10 @@
-INCLUDES = `pkg-config --cflags libusb-1.0`
+CFLAGS = `pkgconfig --cflags libusb-1.0`
 
 %.o : %.cpp
-	$(CC) -c $*.cpp -o $@ -Wno-trigraphs -pipe -ggdb -Wall $(INCLUDES)
+	$(CC) -c $*.cpp -o $@ -Wno-trigraphs -pipe -ggdb -Wall $(CFLAGS)
 
 %.o : %.c
-	$(CC) -c $*.c -o $@ -Wstrict-prototypes -Wno-trigraphs -pipe -ggdb $(INCLUDES)
+	$(CC) -c $*.c -o $@ -Wstrict-prototypes -Wno-trigraphs -pipe -ggdb $(CFLAGS)
 
 imx_usb.lds:
 	ld --verbose|sed \
@@ -16,9 +16,7 @@ imx_usb.lds:
 
 
 imx_usb: imx_usb.o imx_usb.lds
-	$(CC) -o $@ $@.o -T $@.lds -lusb-1.0
- 
-clean:
-	rm imx_usb imx_usb.lds imx_usb.o
+	gcc -o $@ $@.o -T $@.lds -lusb-1.0
+
 
 all: imx_usb
