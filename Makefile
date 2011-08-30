@@ -1,4 +1,6 @@
-CFLAGS = `pkgconfig --cflags libusb-1.0`
+all: imx_usb
+
+CFLAGS = `pkg-config --cflags libusb-1.0`
 
 %.o : %.cpp
 	$(CC) -c $*.cpp -o $@ -Wno-trigraphs -pipe -ggdb -Wall $(CFLAGS)
@@ -18,8 +20,6 @@ imx_usb.lds:
 imx_usb: imx_usb.o imx_usb.lds
 	gcc -o $@ $@.o -T $@.lds -lusb-1.0
 
-
 clean:
-       rm imx_usb imx_usb.lds imx_usb.o
+	rm -f imx_usb imx_usb.lds imx_usb.o
 
-all: imx_usb
