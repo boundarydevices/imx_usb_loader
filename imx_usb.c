@@ -328,8 +328,10 @@ static int write_memory(struct libusb_device_handle *h, struct usb_id *p_id, uns
 	}
 	memset(tmp, 0, sizeof(tmp));
 	err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
-	if (err)
+	if (err) {
 		printf("w3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+		printf("addr=0x%08x, val=0x%08x\n", addr, val);
+	}
 	if (p_id->mode == MODE_HID) {
 		memset(tmp, 0, sizeof(tmp));
 		err = transfer(h, 4, tmp, sizeof(tmp), &last_trans, p_id);
@@ -488,6 +490,7 @@ int DoIRomDownload(struct libusb_device_handle *h, const char *defFilename, stru
 		unsigned skip = 0;
 		unsigned start_addr = 0;
 		int retry = 0;
+		int ret;
 		if (cnt < 0x20) {
 			fclose(xfile);
 			return -2;
@@ -504,9 +507,11 @@ int DoIRomDownload(struct libusb_device_handle *h, const char *defFilename, stru
 					if (((unsigned *)p)[0] == IVT_BARKER) {
 						struct ivt_header *hdr = (struct ivt_header *)p;
 						dladdr = hdr->self_ptr;
-						write_dcd_table_ivt(h, p_id, hdr);
+						ret = write_dcd_table_ivt(h, p_id, hdr);
 						start_addr = hdr->self_ptr;	//hdr->start_addr; //
 						printf("dcd_ptr=0x%08x\n", hdr->dcd_ptr);
+						if (ret < 0)
+							return ret;
 						hdr->dcd_ptr = 0;	//don't init memory twice!!!
 						hdr->boot_data_ptr = 0;
 					}
