@@ -672,7 +672,7 @@ int do_status(libusb_device_handle *h, struct usb_id *p_id)
 	return err;
 }
 
-int main(void)
+int main(int argc, char const *const argv[])
 {
 	struct usb_id *p_id;
 	libusb_device **devs;
@@ -714,7 +714,11 @@ int main(void)
 			printf("Interface 0 claimed\n");
 			err = do_status(h, p_id);
 			if (!err) {
-				create_file_name(tmp, p_id, P_DDR_INIT);
+				if (1 == argc) {
+					create_file_name(tmp, p_id, P_DDR_INIT);
+				} else {
+					strcpy(tmp,argv[1]);
+				}
 				err = DoIRomDownload(h, tmp, p_id, FT_APP);
 				if (p_id->mode != MODE_HID) {
 					do_status(h, p_id);
