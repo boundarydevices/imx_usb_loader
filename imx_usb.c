@@ -34,46 +34,14 @@
 
 #define min(a, b) (((a) < (b)) ? (a) : (b))
 
-struct usb_id {
+struct mach_id;
+struct mach_id {
+	struct mach_id * next;
 	unsigned short vid;
 	unsigned short pid;
-	const unsigned char *name;
-	unsigned ram_base;
-	unsigned short max_transfer;
-#define MODE_HID	0
-#define MODE_BULK	1
-	unsigned char mode;
-#define HDR_NONE	0
-#define HDR_MX51	1
-#define HDR_MX53	2
-	unsigned char header_type;
+	unsigned char file_name[256];
 };
 
-#define P_DDR_INIT	0
-#define P_BURN_PROGRAM	1
-#define P_FILE_TO_BURN	2
-
-static const char* file_suffixes[] = {
-	"ddr_init_xm.bin",		//program to run to initialize ddr
-	"ecspi_ram_write_xm.bin",	//program to run to program serial eeprom
-	"ubl_ecspi.bin"			//program to be burned into serial eeprom, loaded to ram_base + 0x03f00000
-};
-static struct usb_id ids[] = {
-//	{0x066f, 0x3780, "mx23", 0, 1024, MODE_HID, HDR_NONE},
-//	{0x15a2, 0x004f, "mx28", 0, 1024, MODE_HID, HDR_NONE},
-//	{0x15a2, 0x0052, "mx50", 0, 1024, MODE_HID, HDR_MX53},
-	{0x15a2, 0x0054, "mx6", 0x10000000, 1024, MODE_HID, HDR_MX53},
-	/* i.MX31/25/35/51/53 belong to Bulk-IO mode */
-	{0x15a2, 0x0041, "mx51", 0x90000000, 64, MODE_BULK, HDR_MX51},
-	{0x15a2, 0x004e, "mx53", 0x70000000, 512, MODE_BULK, HDR_MX53},
-	{0x066f, 0x37ff, "linux gadget", 512, MODE_BULK, HDR_NONE},
-	{0, 0}			//end of list
-};
-
-int create_file_name(char* buffer, struct usb_id *p_id, int purpose)
-{
-	return sprintf(buffer, "%s_%s", p_id->name, file_suffixes[purpose]);
-}
 static void print_devs(libusb_device **devs)
 {
 	int j, k, l;
@@ -113,22 +81,334 @@ static void print_devs(libusb_device **devs)
 		libusb_free_config_descriptor(config);
 	}
 }
-
-static struct usb_id * imx_device(unsigned short vid, unsigned short pid)
+/*
+	{0x066f, 0x3780, "mx23", 0, 1024, MODE_HID, HDR_NONE},
+	{0x15a2, 0x004f, "mx28", 0, 1024, MODE_HID, HDR_NONE},
+	{0x15a2, 0x0052, "mx50", 0, 1024, MODE_HID, HDR_MX53},
+	{0x15a2, 0x0054, "mx6", 0x10000000, 1024, MODE_HID, HDR_MX53},
+	{0x15a2, 0x0041, "mx51", 0x90000000, 64, MODE_BULK, HDR_MX51},
+	{0x15a2, 0x004e, "mx53", 0x70000000, 512, MODE_BULK, HDR_MX53},
+	{0x066f, 0x37ff, "linux gadget", 512, MODE_BULK, HDR_NONE},
+};
+*/
+int get_val(char** pp, int base)
 {
-	struct usb_id *p = ids;
-	while (p->vid || p->pid) {
+	int val = 0;
+	char *p = *pp;
+	while (*p==' ') p++;
+	if (*p=='0') {
+		p++;
+		if ((*p=='x')||(*p=='X')) {
+			p++;
+			base = 16;
+		}
+	}
+	while (*p) {
+		char c = *p++;
+		if ((c >= '0')&&(c <= '9')) {
+			c -= '0';
+		} else {
+			c &= ~('a'-'A');
+			if ((c >= 'A')&&(c <= 'F')) c -= ('A'-10);
+			else {
+				p--;
+				break;
+			}
+		}
+		if (c >= base) {
+			printf("Syntax error: %s\n", p-1);
+			val = -1;
+			break;
+		}
+		val = (val * base) + c;
+	}
+	while (*p==' ') p++;
+	*pp = p;
+	return val;
+}
+
+unsigned char *move_string(unsigned char *dest, unsigned char *src, unsigned cnt)
+{
+	int i = 0;
+	while (i < cnt) {
+		char c = *src++;
+		if ((!c) || (c == ' ') || (c == 0x0d) || (c == '\n') || (c == '#') || (c == ':')) {
+			src--;
+			break;
+		}
+		dest[i++] = c;
+	}
+	return src;
+}
+
+static struct mach_id *parse_imx_conf(char *filename)
+{
+	unsigned short vid;
+	unsigned short pid;
+	char line[512];
+	struct mach_id *head = NULL;
+	struct mach_id *tail = NULL;
+	struct mach_id *curr = NULL;
+	char *p;
+	FILE* xfile = fopen(filename, "rb" );
+	if (!xfile) {
+		printf("Could not open file: %s\n", filename);
+		return NULL;
+	}
+
+	while (fgets(line, sizeof(line), xfile) != NULL) {
+		p = line;
+		while (*p==' ') p++;
+		if (p[0] == '#')
+			continue;
+		vid = get_val(&p, 16);
+		if (p[0] != ':') {
+			printf("Syntax error(missing ':'): %s [%s]\n", p, line);
+			continue;
+		}
+		p++;
+		pid = get_val(&p, 16);
+		if (p[0] != ',') {
+			printf("Syntax error(missing ','): %s [%s]\n", p, line);
+			continue;
+		}
+		p++;
+		while (*p==' ') p++;
+		if (!(vid && pid)) {
+			printf("vid/pid cannot be 0: %s [%s]\n", p, line);
+			continue;
+		}
+		curr = (struct mach_id *)malloc(sizeof(struct mach_id));
+		curr->next = NULL;
+		curr->vid = vid;
+		curr->pid = pid;
+		move_string(curr->file_name, p, sizeof(curr->file_name) - 1);
+		if (!head)
+			head = curr;
+		if (tail)
+			tail->next = curr;
+		tail = curr;
+//		printf("vid=0x%04x pid=0x%04x file_name=%s\n", curr->vid, curr->pid, curr->file_name);
+	}
+	fclose(xfile);
+	return head;
+}
+
+struct ram_area {
+	unsigned start;
+	unsigned size;
+};
+
+struct usb_work;
+struct usb_work {
+	struct usb_work *next;
+	unsigned char filename[256];
+	unsigned char dcd;
+	unsigned char clear_dcd;	//means clear dcd_ptr
+	unsigned char plug;
+#define J_ADDR		1
+#define J_HEADER	2
+#define J_HEADER2	3
+	unsigned char jump_mode;
+	unsigned load_addr;
+	unsigned jump_addr;
+};
+
+struct usb_id {
+	unsigned short vid;
+	unsigned short pid;
+	unsigned char name[64];
+	unsigned short max_transfer;
+#define MODE_HID	0
+#define MODE_BULK	1
+	unsigned char mode;
+#define HDR_NONE	0
+#define HDR_MX51	1
+#define HDR_MX53	2
+	unsigned char header_type;
+	struct ram_area ram[8];
+	struct usb_work *work;
+};
+
+char *skip(char *p, char c)
+{
+	while (*p==' ') p++;
+	if (*p == c) {
+		p++;
+	}
+	while (*p==' ') p++;
+	return p;
+}
+
+static struct usb_id *parse_conf(struct mach_id *mach)
+{
+	char line[512];
+	FILE *xfile;
+	char *p;
+	char *q;
+	int i;
+	struct usb_work *tail = NULL;
+	struct usb_work *curr = NULL;
+	struct usb_id *usb = (struct usb_id *)malloc(sizeof(struct usb_id));
+	if (!usb)
+		return NULL;
+	memset(usb, 0, sizeof(struct usb_id));
+
+	xfile = fopen(mach->file_name, "rb" );
+	if (!xfile) {
+		printf("Could not open file: {%s}\n", mach->file_name);
+		free(usb);
+		return NULL;
+	}
+	printf("parse %s\n", mach->file_name);
+
+	usb->vid = mach->vid;
+	usb->pid = mach->pid;
+	while (fgets(line, sizeof(line), xfile) != NULL) {
+		p = line;
+		while (*p==' ') p++;
+		if (p[0] == '#')
+			continue;
+		if (p[0] == 0)
+			continue;
+		if (p[0] == '\n')
+			continue;
+		if (p[0] == 0x0d)
+			continue;
+		if (!usb->name[0]) {
+			p = move_string(usb->name, p, sizeof(usb->name) - 1);
+			continue;
+		}
+		if (!usb->max_transfer) {
+			/*
+			 * #hid/bulk,[old_header,]max packet size, {ram start, ram size}(repeat valid ram areas)
+			 *hid,1024,0x10000000,1G,0x00907000,0x31000
+			 *
+			 */
+			if (strncmp(p, "hid", 3) == 0) {
+				p += 3;
+				p = skip(p,',');
+				usb->mode = MODE_HID;
+			} else if (strncmp(p, "bulk", 4) == 0) {
+				p += 4;
+				p = skip(p,',');
+				usb->mode = MODE_BULK;
+			} else {
+				printf("%s: hid/bulk expected\n", mach->file_name);
+			}
+			if (strncmp(p, "old_header", 10) == 0) {
+				p += 10;
+				p = skip(p,',');
+				usb->header_type = HDR_MX51;
+			} else {
+				usb->header_type = HDR_MX53;
+			}
+			usb->max_transfer = get_val(&p, 10);
+			p = skip(p,',');
+			for (i = 0; i < 8; i++) {
+				usb->ram[i].start = get_val(&p, 10);
+				p = skip(p,',');
+				usb->ram[i].size = get_val(&p, 10);
+				if ((*p == 'G') || (*p == 'g')) {
+					usb->ram[i].size <<= 30;
+					p++;
+				} else if ((*p == 'M') || (*p == 'm')) {
+					usb->ram[i].size <<= 20;
+					p++;
+				} else if ((*p == 'K') || (*p == 'k')) {
+					usb->ram[i].size <<= 10;
+					p++;
+				}
+				p = skip(p,',');
+				if ((*p == '#') || (*p == '\n') || (!*p))
+					break;
+			}
+			continue;
+		}
+		/*
+		 * #file:dcd,plug,load nnn,jump [nnn/header/header2]
+		 */
+		curr = (struct usb_work *)malloc(sizeof(struct usb_work));
+		if (!curr)
+			break;
+		memset(curr, 0, sizeof(struct usb_work));
+		curr->load_addr = usb->ram[0].start + 0x03f00000;	/* default */
+
+		p = move_string(curr->filename, p, sizeof(curr->filename) - 1);
+		p = skip(p,':');
+		for (;;) {
+			q = p;
+			if ((!*p) || (*p == '#')  || (*p == '\n') || (*p == 0x0d))
+					break;
+			if (strncmp(p, "dcd", 3) == 0) {
+				p += 3;
+				p = skip(p,',');
+				curr->dcd = 1;
+			}
+			if (strncmp(p, "clear_dcd", 9) == 0) {
+				p += 9;
+				p = skip(p,',');
+				curr->clear_dcd = 1;
+//				printf("clear_dcd\n");
+			}
+			if (strncmp(p, "plug", 4) == 0) {
+				p += 4;
+				p = skip(p,',');
+				curr->plug = 1;
+//				printf("plug\n");
+			}
+			if (strncmp(p, "load", 4) == 0) {
+				p += 4;
+				curr->load_addr = get_val(&p, 16);
+				p = skip(p,',');
+			}
+			if (strncmp(p, "jump", 4) == 0) {
+				p += 4;
+				curr->jump_mode = J_ADDR;
+				curr->jump_addr = get_val(&p, 16);
+				if (strncmp(p, "header2", 7) == 0) {
+					p += 7;
+					p = skip(p,',');
+					curr->jump_mode = J_HEADER2;
+				} else if (strncmp(p, "header", 6) == 0) {
+					p += 6;
+					p = skip(p,',');
+					curr->jump_mode = J_HEADER;
+				}
+				p = skip(p,',');
+//				printf("jump\n");
+			}
+			if (q == p) {
+				printf("%s: syntax error: %s {%s}\n", mach->file_name, p, line);
+				break;
+			}
+		}
+		if (!usb->work)
+			usb->work = curr;
+		if (tail) {
+			tail->next = curr;
+		}
+		tail = curr;
+	}
+	return usb;
+}
+
+static struct mach_id * imx_device(unsigned short vid, unsigned short pid, struct mach_id *p)
+{
+//	printf("%s: vid=%x pid=%x\n", __func__, vid, pid);
+	while (p) {
 		if ((p->vid == vid) && (p->pid == pid))
 			return p;
-		p++;
+		p = p->next;
 	}
 	return NULL;
 }
 
-static libusb_device *find_imx_dev(libusb_device **devs, struct usb_id **pp_id)
+
+static libusb_device *find_imx_dev(libusb_device **devs, struct mach_id **pp_id, struct mach_id *list)
 {
 	int i = 0;
-	struct usb_id *p;
+	struct mach_id *p;
 	for (;;) {
 		struct libusb_device_descriptor desc;
 		libusb_device *dev = devs[i++];
@@ -139,7 +419,7 @@ static libusb_device *find_imx_dev(libusb_device **devs, struct usb_id **pp_id)
 			fprintf(stderr, "failed to get device descriptor");
 			return;
 		}
-		p = imx_device(desc.idVendor, desc.idProduct);
+		p = imx_device(desc.idVendor, desc.idProduct, list);
 		if (p) {
 			*pp_id = p;
 			return dev;
@@ -155,6 +435,7 @@ long GetFileSize(FILE *xfile)
 	fseek(xfile, 0, SEEK_END);
 	size = ftell(xfile);
 	rewind(xfile);
+//	printf("filesize=%lx\n", size);
 	return size;
 }
 
@@ -172,6 +453,7 @@ long GetFileSize(FILE *xfile)
 #define CTRL_OUT		LIBUSB_ENDPOINT_OUT|LIBUSB_REQUEST_TYPE_CLASS|LIBUSB_RECIPIENT_INTERFACE
 
 #define EP_IN	0x80
+void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr);
 
 /*
  * For HID class drivers, 4 reports are used to implement
@@ -201,6 +483,11 @@ int transfer(struct libusb_device_handle *h, int report, unsigned char *p, unsig
 	int err;
 	if (cnt > p_id->max_transfer)
 		cnt = p_id->max_transfer;
+#ifdef DEBUG
+	printf("report=%i\n", report);
+	if (report < 3)
+		dump_bytes(p, cnt, 0);
+#endif
 	if (p_id->mode == MODE_BULK) {
 		*last_trans = 0;
 		err = libusb_bulk_transfer(h, (report < 3) ? 1 : 2 + EP_IN, p, cnt, last_trans, 1000);
@@ -234,6 +521,10 @@ int transfer(struct libusb_device_handle *h, int report, unsigned char *p, unsig
 			}
 		}
 	}
+#ifdef DEBUG
+	if (report >= 3)
+		dump_bytes(p, cnt, 0);
+#endif
 	return err;
 }
 
@@ -242,7 +533,6 @@ struct boot_data {
 	uint32_t image_len;
 	uint32_t plugin;
 };
-struct ivt_header;
 
 struct ivt_header {
 #define IVT_BARKER 0x402000d1
@@ -254,6 +544,21 @@ struct ivt_header {
 	uint32_t self_ptr;		/* struct ivt_header *, this - boot_data.start = offset linked at */
 	uint32_t app_code_csf;
 	uint32_t reserv2;
+};
+
+/*
+ * MX51 header type
+ */
+struct old_app_header {
+	uint32_t app_start_addr;
+#define APP_BARKER	0xb1
+#define DCD_BARKER	0xb17219e9
+	uint32_t app_barker;
+	uint32_t csf_ptr;
+	uint32_t dcd_ptr_ptr;
+	uint32_t srk_ptr;
+	uint32_t dcd_ptr;
+	uint32_t app_dest_ptr;
 };
 
 #define V(a) (((a)>>24)&0xff),(((a)>>16)&0xff),(((a)>>8)&0xff), ((a)&0xff)
@@ -341,18 +646,23 @@ static int write_memory(struct libusb_device_handle *h, struct usb_id *p_id, uns
 	return err;
 }
 
-static int write_dcd_table_ivt(struct libusb_device_handle *h, struct usb_id *p_id, struct ivt_header *hdr)
+static int write_dcd_table_ivt(struct libusb_device_handle *h, struct usb_id *p_id, struct ivt_header *hdr, unsigned char *file_start, unsigned cnt)
 {
 	unsigned char *dcd_end;
 	unsigned m_length;
 #define cvt_dest_to_src		(((unsigned char *)hdr) - hdr->self_ptr)
 	unsigned char* dcd;
+	unsigned char* file_end = file_start + cnt;
 	int err = 0;
 	if (!hdr->dcd_ptr) {
 		printf("No dcd table, barker=%x\n", hdr->barker);
 		return 0;	//nothing to do
 	}
 	dcd = hdr->dcd_ptr + cvt_dest_to_src;
+	if ((dcd < file_start) || ((dcd + 4) > file_end)) {
+		printf("bad dcd_ptr %08x\n", hdr->dcd_ptr);
+		return -1;
+	}
 	m_length = (dcd[1] << 8) + dcd[2];
 	printf("main dcd length %x\n", m_length);
 	if ((dcd[0] != 0xd2) || (dcd[3] != 0x40)) {
@@ -360,6 +670,10 @@ static int write_dcd_table_ivt(struct libusb_device_handle *h, struct usb_id *p_
 		return -1;
 	}
 	dcd_end = dcd + m_length;
+	if (dcd_end > file_end) {
+		printf("bad dcd length %08x\n", m_length);
+		return -1;
+	}
 	dcd += 4;
 	while (dcd < dcd_end) {
 		unsigned s_length = (dcd[1] << 8) + dcd[2];
@@ -370,11 +684,82 @@ static int write_dcd_table_ivt(struct libusb_device_handle *h, struct usb_id *p_
 			return -1;
 		}
 		dcd += 4;
+		if (s_end > dcd_end) {
+			printf("error s_end(%p) > dcd_end(%p)\n", s_end, dcd_end);
+			return -1;
+		}
 		while (dcd < s_end) {
 			unsigned addr = (dcd[0] << 24) + (dcd[1] << 16) | (dcd[2] << 8) + dcd[3];
 			unsigned val = (dcd[4] << 24) + (dcd[5] << 16) | (dcd[6] << 8) + dcd[7];
 			dcd += 8;
 //			printf("*0x%08x = 0x%08x\n", addr, val);
+			err = write_memory(h, p_id, addr, val);
+			if (err < 0)
+				return err;
+		}
+	}
+	return err;
+}
+
+static int get_dcd_range_old(struct old_app_header *hdr,
+		unsigned char *file_start, unsigned cnt,
+		unsigned char **pstart, unsigned char **pend)
+{
+	unsigned char *dcd_end;
+	unsigned m_length;
+#define cvt_dest_to_src_old		(((unsigned char *)&hdr->dcd_ptr) - hdr->dcd_ptr_ptr)
+	unsigned char* dcd;
+	unsigned val;
+	unsigned char* file_end = file_start + cnt;
+	int err = 0;
+
+	if (!hdr->dcd_ptr) {
+		printf("No dcd table, barker=%x\n", hdr->app_barker);
+		*pstart = *pend = ((unsigned char *)hdr) + sizeof(struct old_app_header);
+		return 0;	//nothing to do
+	}
+	dcd = hdr->dcd_ptr + cvt_dest_to_src_old;
+	if ((dcd < file_start) || ((dcd + 8) > file_end)) {
+		printf("bad dcd_ptr %08x\n", hdr->dcd_ptr);
+		return -1;
+	}
+	val = (dcd[0] << 0) + (dcd[1] << 8) | (dcd[2] << 16) + (dcd[3] << 24);
+	printf("main dcd length %x\n", m_length);
+	if (val != DCD_BARKER) {
+		printf("Unknown tag\n");
+		return -1;
+	}
+	dcd += 4;
+	m_length =  (dcd[0] << 0) + (dcd[1] << 8) | (dcd[2] << 16) + (dcd[3] << 24);
+	dcd += 4;
+	dcd_end = dcd + m_length;
+	if (dcd_end > file_end) {
+		printf("bad dcd length %08x\n", m_length);
+		return -1;
+	}
+	*pstart = dcd;
+	*pend = dcd_end;
+	return 0;
+}
+
+static int write_dcd_table_old(struct libusb_device_handle *h, struct usb_id *p_id, struct old_app_header *hdr, unsigned char *file_start, unsigned cnt)
+{
+	unsigned val;
+	unsigned char *dcd_end;
+	unsigned char* dcd;
+	int err = get_dcd_range_old(hdr, file_start, cnt, &dcd, &dcd_end);
+	if (err < 0)
+		return err;
+
+	while (dcd < dcd_end) {
+		unsigned type = (dcd[0] << 0) + (dcd[1] << 8) | (dcd[2] << 16) + (dcd[3] << 24);
+		unsigned addr = (dcd[4] << 0) + (dcd[5] << 8) | (dcd[6] << 16) + (dcd[7] << 24);
+		val = (dcd[8] << 0) + (dcd[9] << 8) | (dcd[10] << 16) + (dcd[11] << 24);
+		dcd += 12;
+		if (type!=4) {
+			printf("!!!unknown type=%08x *0x%08x = 0x%08x\n", type, addr, val);
+		} else {
+			printf("type=%08x *0x%08x = 0x%08x\n", type, addr, val);
 			err = write_memory(h, p_id, addr, val);
 			if (err < 0)
 				return err;
@@ -398,6 +783,34 @@ void dump_long(unsigned char *src, unsigned cnt, unsigned addr)
 			printf(" %08x", p[0]);
 			p++;
 			cnt -= 4;
+		}
+		printf("\n");
+	}
+}
+
+void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr)
+{
+	unsigned char *p = src;
+	int i;
+	while (cnt >= 16) {
+		printf("%08x: %02x %02x %02x %02x  %02x %02x %02x %02x  %02x %02x %02x %02x  %02x %02x %02x %02x\n", addr,
+				p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]);
+		p += 16;
+		cnt -= 16;
+		addr += 16;
+	}
+	if (cnt) {
+		printf("%08x:", addr);
+		i = 0;
+		while (cnt) {
+			printf(" %02x", p[0]);
+			p++;
+			cnt--;
+			i++;
+			if (cnt) if (i == 4) {
+				i = 0;
+				printf(" ");
+			}
 		}
 		printf("\n");
 	}
@@ -445,6 +858,127 @@ int verify_memory(struct libusb_device_handle *h, struct usb_id *p_id, FILE *xfi
 	return 0;
 }
 
+int is_header(struct usb_id *p_id, unsigned char *p)
+{
+	switch (p_id->header_type) {
+	case HDR_MX51:
+	{
+		struct old_app_header *ohdr = (struct old_app_header *)p;
+		if (ohdr->app_barker == 0xb1)
+			return 1;
+		break;
+	}
+	case HDR_MX53:
+	{
+		struct ivt_header *hdr = (struct ivt_header *)p;
+		if (hdr->barker == IVT_BARKER)
+			return 1;
+	}
+	}
+	return 0;
+}
+
+int perform_dcd(struct libusb_device_handle *h, struct usb_id *p_id, unsigned char *p, unsigned char *file_start, unsigned cnt)
+{
+	int ret = 0;
+	switch (p_id->header_type) {
+	case HDR_MX51:
+	{
+		struct old_app_header *ohdr = (struct old_app_header *)p;
+		ret = write_dcd_table_old(h, p_id, ohdr, file_start, cnt);
+		printf("dcd_ptr=0x%08x\n", ohdr->dcd_ptr);
+#if 1
+		ohdr->dcd_ptr = 0;
+#endif
+		if (ret < 0)
+			return ret;
+		break;
+	}
+	case HDR_MX53:
+	{
+		struct ivt_header *hdr = (struct ivt_header *)p;
+		ret = write_dcd_table_ivt(h, p_id, hdr, file_start, cnt);
+		printf("dcd_ptr=0x%08x\n", hdr->dcd_ptr);
+#if 1
+		hdr->dcd_ptr = 0;
+#endif
+		if (ret < 0)
+			return ret;
+		break;
+	}
+	}
+	return 0;
+}
+
+int clear_dcd_ptr(struct libusb_device_handle *h, struct usb_id *p_id, unsigned char *p, unsigned char *file_start, unsigned cnt)
+{
+	int ret = 0;
+	switch (p_id->header_type) {
+	case HDR_MX51:
+	{
+		struct old_app_header *ohdr = (struct old_app_header *)p;
+		printf("clear dcd_ptr=0x%08x\n", ohdr->dcd_ptr);
+		ohdr->dcd_ptr = 0;
+		break;
+	}
+	case HDR_MX53:
+	{
+		struct ivt_header *hdr = (struct ivt_header *)p;
+		printf("clear dcd_ptr=0x%08x\n", hdr->dcd_ptr);
+		hdr->dcd_ptr = 0;
+		break;
+	}
+	}
+	return 0;
+}
+
+#define offsetof(TYPE, MEMBER) __builtin_offsetof(TYPE, MEMBER)
+//#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
+
+int get_dl_start(struct usb_id *p_id, unsigned char *p, unsigned char *file_start, unsigned cnt, unsigned *dladdr, unsigned *max_length, unsigned *plugin, unsigned *header_addr)
+{
+	unsigned char* file_end = file_start + cnt;
+	switch (p_id->header_type) {
+	case HDR_MX51:
+	{
+		struct old_app_header *ohdr = (struct old_app_header *)p;
+		unsigned char *dcd_end;
+		unsigned char* dcd;
+		int err = get_dcd_range_old(ohdr, file_start, cnt, &dcd, &dcd_end);
+		*dladdr = ohdr->app_dest_ptr;
+		*header_addr = ohdr->dcd_ptr_ptr - offsetof(struct old_app_header, dcd_ptr);
+		*plugin = 0;
+		if (err >= 0) {
+			*max_length = dcd_end[0] | (dcd_end[1] << 8) | (dcd_end[2] << 16) | (dcd_end[3] << 24);
+		}
+		break;
+	}
+	case HDR_MX53:
+	{
+		unsigned char *bd;
+		struct ivt_header *hdr = (struct ivt_header *)p;
+		*dladdr = hdr->self_ptr;
+		*header_addr = hdr->self_ptr;
+		bd = hdr->boot_data_ptr + cvt_dest_to_src;
+		if ((bd < file_start) || ((bd + 4) > file_end)) {
+			printf("bad boot_data_ptr %08x\n", hdr->boot_data_ptr);
+			return -1;
+		}
+		*dladdr = ((struct boot_data *)bd)->dest;
+		*max_length = ((struct boot_data *)bd)->image_len;
+		*plugin = ((struct boot_data *)bd)->plugin;
+		((struct boot_data *)bd)->plugin = 0;
+#if 1
+		hdr->boot_data_ptr = 0;
+#endif
+		break;
+	}
+	}
+	return 0;
+}
+
+int do_status(libusb_device_handle *h, struct usb_id *p_id);
+
 static const unsigned char statusCommand[]={5,5,0,0,0,0, 0, 0,0,0,0, 0,0,0,0, 0};
 #define MAX_IN_LENGTH 100 // max length for user input strings
 
@@ -452,32 +986,24 @@ static const unsigned char statusCommand[]={5,5,0,0,0,0, 0, 0,0,0,0, 0,0,0,0, 0}
 #define FT_CSF	0xcc
 #define FT_DCD	0xee
 #define FT_LOAD_ONLY	0x00
-int DoIRomDownload(struct libusb_device_handle *h, const char *defFilename, struct usb_id *p_id, int type)
+int DoIRomDownload(struct libusb_device_handle *h, struct usb_id *p_id, struct usb_work *curr)
 {
 	FILE* xfile = NULL;
-	char filename[MAX_IN_LENGTH];
+	unsigned char type;
+	unsigned plugin = 0;
 //							address, format, data count, data, type
 	static unsigned char dlCommand[] =    {0x04,0x04, V(0),  0x00, V(0x00000020), V(0), 0xaa};
 	static unsigned char jump_command[] = {0x0b,0x0b, V(0),  0x00, V(0x00000000), V(0), 0x00};
-	dlCommand[15] = type;
-	printf("%s\n", defFilename);
+	printf("%s\n", curr->filename);
 	if (!xfile) {
-		if (defFilename) {
-			strcpy(filename,defFilename);
-			defFilename = NULL;
-		} else {
-			filename[0]=0;
-			printf("\r\nenter binary file name: ");
-//			if (my_gets(filename,MAX_IN_LENGTH-1))
-				return -1;
-		}
-		xfile = fopen(filename, "rb" );
+		xfile = fopen(curr->filename, "rb" );
 		if (!xfile)
-			printf("\r\nerror, can not open input file: %s\r\n", filename);
+			printf("\r\nerror, can not open input file: %s\r\n", curr->filename);
 	}
 
 	if (xfile) {
-		unsigned int dladdr = 0;
+		unsigned dladdr = 0;
+		unsigned max_length;
 		int max = p_id->max_transfer;
 		int last_trans, err;
 #define MAX_PACKET_SIZE (1024*4)			//512	//1024
@@ -488,51 +1014,107 @@ int DoIRomDownload(struct libusb_device_handle *h, const char *defFilename, stru
 		int cnt = fread(buf, 1 , MAX_PACKET_SIZE, xfile);
 		unsigned char tmp[64];
 		unsigned skip = 0;
-		unsigned start_addr = 0;
+		unsigned header_addr = 0;
+		unsigned header_offset = 0;
+		unsigned file_base;
 		int retry = 0;
 		int ret;
+		struct ivt_header *hdr;
+		struct old_app_header *ohdr;
 		if (cnt < 0x20) {
 			fclose(xfile);
 			return -2;
 		}
-		if (type == FT_APP) {
-			while (skip <= 0x400) {
-				switch (p_id->header_type) {
-				case HDR_MX51:
-					if (((unsigned *)p)[1] == 0xb1) {
-						dladdr = ((unsigned *)p)[6];
+		max_length = fsize;
+		if (curr->dcd || curr->clear_dcd || curr->plug || (curr->jump_mode >= J_HEADER)) {
+			unsigned header_max = 0x800;
+			unsigned header_inc = 0x400;
+			int header_cnt = 0;
+			while (header_offset < header_max) {
+//				printf("header_offset=%x\n", header_offset);
+				if (is_header(p_id, p)) {
+					ret = get_dl_start(p_id, p, buf, cnt, &dladdr, &max_length, &plugin, &header_addr);
+					if (ret < 0) {
+						printf("!!get_dl_start returned %i\n", ret);
+						fclose(xfile);
+						return ret;
 					}
-					break;
-				case HDR_MX53:
-					if (((unsigned *)p)[0] == IVT_BARKER) {
-						struct ivt_header *hdr = (struct ivt_header *)p;
-						dladdr = hdr->self_ptr;
-						ret = write_dcd_table_ivt(h, p_id, hdr);
-						start_addr = hdr->self_ptr;	//hdr->start_addr; //
-						printf("dcd_ptr=0x%08x\n", hdr->dcd_ptr);
-						if (ret < 0)
+					if (curr->dcd) {
+						ret = perform_dcd(h, p_id, p, buf, cnt);
+						if (ret < 0) {
+							printf("!!perform_dcd returned %i\n", ret);
+							fclose(xfile);
 							return ret;
-						hdr->dcd_ptr = 0;	//don't init memory twice!!!
-						hdr->boot_data_ptr = 0;
+						}
+						curr->dcd = 0;
+						if ((!curr->jump_mode) && (!curr->plug)) {
+							printf("!!dcd done, nothing else requested\n", ret);
+							fclose(xfile);
+							return 0;
+						}
 					}
-					break;
+					if (curr->clear_dcd) {
+						ret = clear_dcd_ptr(h, p_id, p, buf, cnt);
+						if (ret < 0) {
+							printf("!!clear_dcd returned %i\n", ret);
+							fclose(xfile);
+							return ret;
+						}
+					}
+					if (plugin && (!curr->plug) && (!header_cnt)) {
+						header_cnt++;
+						header_max = cnt;
+						header_inc = 4;
+					} else {
+						if (!plugin)
+							curr->plug = 0;
+						break;
+					}
 				}
-				if (dladdr)
-					break;
-				skip += 0x400;
-				p += 0x400;
-				cnt -= 0x400;
-				fsize -= 0x400;
+				header_offset += header_inc;
+				p += header_inc;
 			}
 		} else {
-			dladdr = p_id->ram_base + 0x03f00000;
+			dladdr = curr->load_addr;
+			printf("load_addr=%x\n", curr->load_addr);
+			header_addr = dladdr;
+			header_offset = 0;
+		}
+		if (plugin && (!curr->plug)) {
+			printf("Only plugin header found\n");
+			fclose(xfile);
+			return -1;
 		}
 		if (!dladdr) {
 			printf("\nunknown load address\r\n");
 			fclose(xfile);
 			return -3;
 		}
-		printf("\nloading binary file(%s) to %08x\r\n", filename, dladdr);
+		file_base = header_addr - header_offset;
+		if (file_base > dladdr) {
+			max_length -= (file_base - dladdr);
+			dladdr = file_base;
+		}
+		skip = dladdr - file_base;
+		if (skip > cnt) {
+			if (skip > fsize) {
+				printf("skip(0x%08x) > fsize(0x%08x) file_base=0x%08x, header_offset=0x%x\n", skip, fsize, file_base, header_offset);
+				return -4;
+			}
+			fseek(xfile, skip, SEEK_SET);
+			cnt -= skip;
+			fsize -= skip;
+			skip = 0;
+			cnt = fread(buf, 1 , MAX_PACKET_SIZE, xfile);
+		}
+		p = &buf[skip];
+		cnt -= skip;
+		fsize -= skip;
+		if (fsize > max_length)
+			fsize = max_length;
+		type = (curr->plug || curr->jump_mode) ? FT_APP : FT_LOAD_ONLY;
+		dlCommand[15] = type;
+		printf("\nloading binary file(%s) to %08x, skip=%x, fsize=%x type=%x\r\n", curr->filename, dladdr, skip, fsize, dlCommand[15]);
 
 		dlCommand[2] = (unsigned char)(dladdr>>24);
 		dlCommand[3] = (unsigned char)(dladdr>>16);
@@ -615,33 +1197,38 @@ int DoIRomDownload(struct libusb_device_handle *h, const char *defFilename, stru
 			err = transfer(h, 4, tmp, sizeof(tmp), &last_trans, p_id);
 			if (err)
 				printf("4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-
-			if (type == FT_APP) {
-//				verify_memory(h, p_id, xfile, skip + 20, dladdr + 20, fsize - 20);
-				printf("jumping to 0x%08x\n", start_addr);
-				jump_command[2] = (unsigned char)(start_addr >> 24);
-				jump_command[3] = (unsigned char)(start_addr >> 16);
-				jump_command[4] = (unsigned char)(start_addr >> 8);
-				jump_command[5] = (unsigned char)(start_addr);
-				retry = 0;
-				for (;;) {
-					err = transfer(h, 1, jump_command, 16, &last_trans, p_id);
-					if (!err)
-						break;
-					printf("jump_command err=%i, last_trans=%i\n", err, last_trans);
-					if (retry > 5) {
-						return -4;
-					}
-					retry++;
+		} else {
+//			err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
+//			if (err)
+//				printf("3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+			do_status(h, p_id);
+		}
+		if (p_id->mode == MODE_HID) if (type == FT_APP) {
+//			verify_memory(h, p_id, xfile, skip + 20, dladdr + 20, fsize - 20);
+			printf("jumping to 0x%08x\n", header_addr);
+			jump_command[2] = (unsigned char)(header_addr >> 24);
+			jump_command[3] = (unsigned char)(header_addr >> 16);
+			jump_command[4] = (unsigned char)(header_addr >> 8);
+			jump_command[5] = (unsigned char)(header_addr);
+			//Any command will initiate jump for mx51, jump address is ignored by mx51
+			retry = 0;
+			for (;;) {
+				err = transfer(h, 1, jump_command, 16, &last_trans, p_id);
+				if (!err)
+					break;
+				printf("jump_command err=%i, last_trans=%i\n", err, last_trans);
+				if (retry > 5) {
+					return -4;
 				}
+				retry++;
+			}
+			memset(tmp, 0, sizeof(tmp));
+			err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
+			printf("j3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+			if (p_id->mode == MODE_HID) {
 				memset(tmp, 0, sizeof(tmp));
-				err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
-				printf("j3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-				if (p_id->mode == MODE_HID) {
-					memset(tmp, 0, sizeof(tmp));
-					err = transfer(h, 4, tmp, sizeof(tmp), &last_trans, p_id);
-					printf("j4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-				}
+				err = transfer(h, 4, tmp, sizeof(tmp), &last_trans, p_id);
+				printf("j4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
 			}
 		}
 		fclose(xfile);
@@ -680,23 +1267,32 @@ int do_status(libusb_device_handle *h, struct usb_id *p_id)
 int main(int argc, char const *const argv[])
 {
 	struct usb_id *p_id;
+	struct mach_id *mach;
 	libusb_device **devs;
 	libusb_device *dev;
 	int r;
 	int err;
+	int ret=1;
 	ssize_t cnt;
 	libusb_device_handle *h = NULL;
+	int config = 0;
+	int i;
+	struct usb_work w;
+	struct usb_work *curr;
 
+	struct mach_id *list = parse_imx_conf("imx_usb.conf");
+	if (!list)
+		goto out;
 	r = libusb_init(NULL);
 	if (r < 0)
-		return r;
+		goto out;
 
 	cnt = libusb_get_device_list(NULL, &devs);
 	if (cnt < 0)
-		return (int) cnt;
+		goto out;
 
-	print_devs(devs);
-	dev = find_imx_dev(devs, &p_id);
+//	print_devs(devs);
+	dev = find_imx_dev(devs, &mach, list);
 	if (dev) {
 		err = libusb_open(dev, &h);
 		if (err)
@@ -704,73 +1300,86 @@ int main(int argc, char const *const argv[])
 	}
 	libusb_free_device_list(devs, 1);
 
-	if (h) {
-		int config = 0;
-		int err;
-		libusb_get_configuration(h, &config);
-		printf("%04x:%04x(%s) bConfigurationValue =%x\n", p_id->vid, p_id->pid, p_id->name, config);
-		if (libusb_kernel_driver_active(h, 0))
-			 libusb_detach_kernel_driver(h, 0);
+	if (!h)
+		goto out;
+	p_id = parse_conf(mach);
+	if (!p_id)
+		goto out;
+	libusb_get_configuration(h, &config);
+	printf("%04x:%04x(%s) bConfigurationValue =%x\n", p_id->vid, p_id->pid, p_id->name, config);
+	if (libusb_kernel_driver_active(h, 0))
+		 libusb_detach_kernel_driver(h, 0);
 
-		err = libusb_claim_interface(h, 0);
-		if (!err) {
-			int i;
-			unsigned char tmp[MAX_IN_LENGTH];
-			printf("Interface 0 claimed\n");
-			err = do_status(h, p_id);
-			if (!err) {
-				if (1 == argc) {
-					create_file_name(tmp, p_id, P_DDR_INIT);
-				} else {
-					strcpy(tmp,argv[1]);
-				}
-				err = DoIRomDownload(h, tmp, p_id, FT_APP);
-				if (p_id->mode != MODE_HID) {
-					do_status(h, p_id);
-					if (err)
-						goto exit;
-					libusb_release_interface(h, 0);
-					libusb_close(h);
-					libusb_exit(NULL);
-					printf("sleeping\n");
-					sleep(10);
-					printf("done sleeping\n");
-					r = libusb_init(NULL);
-					h = libusb_open_device_with_vid_pid(NULL, p_id->vid, p_id->pid);
-					if (err) {
-						printf("Could not open device, err=%i\n", err);
-						goto exit;
-					}
-					if (libusb_kernel_driver_active(h, 0))
-						 libusb_detach_kernel_driver(h, 0);
-					err = libusb_claim_interface(h, 0);
-					if (err) {
-						printf("claim failed, err=%i\n", err);
-						goto exit;
-					}
-					err = do_status(h, p_id);
-					if (err) {
-						printf("status failed, err=%i\n", err);
-						goto exit;
-					}
-					create_file_name(tmp, p_id, P_FILE_TO_BURN);
-					err = DoIRomDownload(h, tmp, p_id, FT_LOAD_ONLY);
-					if (err)
-						goto exit;
-
-					create_file_name(tmp, p_id, P_BURN_PROGRAM);
-					DoIRomDownload(h, tmp, p_id, FT_APP);
-					do_status(h, p_id);
-				}
-			}
-exit:
-			libusb_release_interface(h, 0);
-		} else {
-			printf("Claim failed\n");
-		}
-		libusb_close(h);
+	err = libusb_claim_interface(h, 0);
+	if (err) {
+		printf("Claim failed\n");
+		goto out;
 	}
+	printf("Interface 0 claimed\n");
+	err = do_status(h, p_id);
+	if (err) {
+		printf("status failed\n");
+		goto out;
+	}
+	if (argc < 2) {
+		curr = p_id->work;
+	} else {
+		memset(&w, 0, sizeof(struct usb_work));
+		w.plug = 1;
+		w.dcd = 1;
+		w.jump_mode = J_HEADER;
+		strncpy(w.filename, argv[1], sizeof(w.filename) - 1);
+		curr = &w;
+	}
+	while (curr) {
+//		printf("jump_mode %x\n", curr->jump_mode);
+		err = DoIRomDownload(h, p_id, curr);
+		if (curr->plug) {
+			curr->plug = 0;
+			if (curr->jump_mode)
+				continue;
+		}
+		if (!curr->next)
+			break;
+//		printf("jump_mode %x\n", curr->jump_mode);
+		if (curr->plug || (curr->jump_mode >= J_HEADER)) {
+			/* Rediscovers device */
+			do_status(h, p_id);
+			if (err)
+				goto exit;
+			libusb_release_interface(h, 0);
+			libusb_close(h);
+			libusb_exit(NULL);
+			printf("sleeping\n");
+			sleep(10);
+			printf("done sleeping\n");
+			r = libusb_init(NULL);
+			h = libusb_open_device_with_vid_pid(NULL, p_id->vid, p_id->pid);
+			if (err) {
+				printf("Could not open device, err=%i\n", err);
+				goto exit;
+			}
+			if (libusb_kernel_driver_active(h, 0))
+				libusb_detach_kernel_driver(h, 0);
+			err = libusb_claim_interface(h, 0);
+			if (err) {
+				printf("claim failed, err=%i\n", err);
+				goto exit;
+			}
+			err = do_status(h, p_id);
+			if (err) {
+				printf("status failed, err=%i\n", err);
+				goto exit;
+			}
+		}
+		curr = curr->next;
+	}
+	ret = 0;
+exit:
+	libusb_release_interface(h, 0);
+out:
+	if (h)
+		libusb_close(h);
 	libusb_exit(NULL);
-	return 0;
+	return ret;
 }
-
