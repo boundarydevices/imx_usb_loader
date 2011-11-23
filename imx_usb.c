@@ -1334,10 +1334,9 @@ int main(int argc, char const *const argv[])
 	while (curr) {
 //		printf("jump_mode %x\n", curr->jump_mode);
 		err = DoIRomDownload(h, p_id, curr);
-		if (curr->plug) {
+		if (curr->plug && curr->jump_mode) {
 			curr->plug = 0;
-			if (curr->jump_mode)
-				continue;
+			continue;
 		}
 		if (!curr->next)
 			break;
@@ -1351,7 +1350,7 @@ int main(int argc, char const *const argv[])
 			libusb_close(h);
 			libusb_exit(NULL);
 			printf("sleeping\n");
-			sleep(10);
+			sleep(3);
 			printf("done sleeping\n");
 			r = libusb_init(NULL);
 			h = libusb_open_device_with_vid_pid(NULL, p_id->vid, p_id->pid);
