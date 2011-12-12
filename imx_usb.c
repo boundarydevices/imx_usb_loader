@@ -1354,8 +1354,8 @@ int main(int argc, char const *const argv[])
 			printf("done sleeping\n");
 			r = libusb_init(NULL);
 			h = libusb_open_device_with_vid_pid(NULL, p_id->vid, p_id->pid);
-			if (err) {
-				printf("Could not open device, err=%i\n", err);
+			if (!h) {
+				printf("Could not open device\n");
 				goto exit;
 			}
 			if (libusb_kernel_driver_active(h, 0))
