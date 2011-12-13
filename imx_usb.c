@@ -932,8 +932,10 @@ int clear_dcd_ptr(struct libusb_device_handle *h, struct usb_id *p_id, unsigned 
 	return 0;
 }
 
+#ifndef offsetof
 #define offsetof(TYPE, MEMBER) __builtin_offsetof(TYPE, MEMBER)
 //#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
+#endif
 
 int get_dl_start(struct usb_id *p_id, unsigned char *p, unsigned char *file_start, unsigned cnt, unsigned *dladdr, unsigned *max_length, unsigned *plugin, unsigned *header_addr)
 {
