@@ -1,6 +1,13 @@
 all: imx_usb
 
+BUILDHOST := $(shell uname -s)
+BUILDHOST := $(patsubst CYGWIN_%,CYGWIN,$(BUILDHOST))
+
+ifneq ($(BUILDHOST),CYGWIN)
 CFLAGS = `pkg-config --cflags libusb-1.0`
+else
+CFLAGS = -I/usr/include/libusb-1.0
+endif
 
 %.o : %.cpp
 	$(CC) -c $*.cpp -o $@ -Wno-trigraphs -pipe -ggdb -Wall $(CFLAGS)
