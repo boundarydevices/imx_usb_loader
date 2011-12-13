@@ -429,7 +429,7 @@ static libusb_device *find_imx_dev(libusb_device **devs, struct mach_id **pp_id,
 	return NULL;
 }
 
-long GetFileSize(FILE *xfile)
+long get_file_size(FILE *xfile)
 {
 	long size;
 	fseek(xfile, 0, SEEK_END);
@@ -1009,7 +1009,7 @@ int DoIRomDownload(struct libusb_device_handle *h, struct usb_id *p_id, struct u
 #define MAX_PACKET_SIZE (1024*4)			//512	//1024
 		unsigned char buf[MAX_PACKET_SIZE];
 		unsigned transferSize=0;
-		unsigned fsize = GetFileSize(xfile);
+		unsigned fsize = get_file_size(xfile);
 		unsigned char *p = buf;
 		int cnt = fread(buf, 1 , MAX_PACKET_SIZE, xfile);
 		unsigned char tmp[64];
