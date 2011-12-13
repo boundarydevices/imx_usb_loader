@@ -32,7 +32,7 @@
 
 #include <libusb.h>
 
-#define min(a, b) (((a) < (b)) ? (a) : (b))
+#define get_min(a, b) (((a) < (b)) ? (a) : (b))
 
 struct mach_id;
 struct mach_id {
@@ -825,7 +825,7 @@ int verify_memory(struct libusb_device_handle *h, struct usb_id *p_id, FILE *xfi
 		unsigned char mem_buf[64];
 		unsigned char *p = file_buf;
 		int cnt = addr & 0x3f;
-		int request = min(size, sizeof(file_buf));
+		int request = get_min(size, sizeof(file_buf));
 		if (cnt) {
 			cnt = 64 - cnt;
 			if (request > cnt)
@@ -838,7 +838,7 @@ int verify_memory(struct libusb_device_handle *h, struct usb_id *p_id, FILE *xfi
 		}
 		size -= cnt;
 		while (cnt) {
-			request = min(cnt, sizeof(mem_buf));
+			request = get_min(cnt, sizeof(mem_buf));
 			read_memory(h, p_id, addr, mem_buf, request);
 			if (memcmp(p, mem_buf, request)) {
 				printf("!!!!mismatch addr=0x%08x, offset=0x%08x\n", addr, offset);
@@ -1153,7 +1153,7 @@ int DoIRomDownload(struct libusb_device_handle *h, struct usb_id *p_id, struct u
 			retry = 0;
 			c = cnt;
 			while (c) {
-				err = transfer(h, 2, p, min(c, max), &last_trans, p_id);
+				err = transfer(h, 2, p, get_min(c, max), &last_trans, p_id);
 //				printf("err=%i, last_trans=0x%x, c=0x%x, max=0x%x\n", err, last_trans, c, max);
 				if (err) {
 					printf("out err=%i, last_trans=%i c=0x%x max=0x%x transferSize=0x%X retry=%i\n", err, last_trans, c, max, transferSize, retry);
