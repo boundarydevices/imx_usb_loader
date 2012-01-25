@@ -1008,12 +1008,12 @@ int DoIRomDownload(struct libusb_device_handle *h, struct usb_id *p_id, struct u
 		unsigned max_length;
 		int max = p_id->max_transfer;
 		int last_trans, err;
-#define MAX_PACKET_SIZE (1024*4)			//512	//1024
-		unsigned char buf[MAX_PACKET_SIZE];
+#define BUF_SIZE (1024*16)
+		unsigned char buf[BUF_SIZE];
 		unsigned transferSize=0;
 		unsigned fsize = get_file_size(xfile);
 		unsigned char *p = buf;
-		int cnt = fread(buf, 1 , MAX_PACKET_SIZE, xfile);
+		int cnt = fread(buf, 1 , BUF_SIZE, xfile);
 		unsigned char tmp[64];
 		unsigned skip = 0;
 		unsigned header_addr = 0;
@@ -1065,7 +1065,10 @@ int DoIRomDownload(struct libusb_device_handle *h, struct usb_id *p_id, struct u
 					}
 					if (plugin && (!curr->plug) && (!header_cnt)) {
 						header_cnt++;
-						header_max = cnt;
+						header_max = header_offset + max_length + 0x400;
+						if (header_max > BUF_SIZE - 32)
+							header_max = BUF_SIZE - 32;
+						printf("header_max=%x\n", header_max);
 						header_inc = 4;
 					} else {
 						if (!plugin)
@@ -1093,6 +1096,10 @@ int DoIRomDownload(struct libusb_device_handle *h, struct usb_id *p_id, struct u
 			return -3;
 		}
 		file_base = header_addr - header_offset;
+		if (p_id->mode == MODE_BULK) if (type == FT_APP) {
+			/* No jump command, dladdr should point to header */
+			dladdr = header_addr;
+		}
 		if (file_base > dladdr) {
 			max_length -= (file_base - dladdr);
 			dladdr = file_base;
@@ -1107,7 +1114,7 @@ int DoIRomDownload(struct libusb_device_handle *h, struct usb_id *p_id, struct u
 			cnt -= skip;
 			fsize -= skip;
 			skip = 0;
-			cnt = fread(buf, 1 , MAX_PACKET_SIZE, xfile);
+			cnt = fread(buf, 1 , BUF_SIZE, xfile);
 		}
 		p = &buf[skip];
 		cnt -= skip;
@@ -1187,7 +1194,7 @@ int DoIRomDownload(struct libusb_device_handle *h, struct usb_id *p_id, struct u
 			}
 			if (!last_trans) break;
 			if (feof(xfile)) break;
-			cnt = fread(buf, 1 , MAX_PACKET_SIZE, xfile);
+			cnt = fread(buf, 1 , BUF_SIZE, xfile);
 			p = buf;
 		}
 		printf("\r\n<<<%i, %i bytes>>>\r\n", fsize, transferSize);
@@ -1266,6 +1273,35 @@ int do_status(libusb_device_handle *h, struct usb_id *p_id)
 	return err;
 }
 
+libusb_device_handle * open_vid_pid(struct usb_id *p_id)
+{
+	int r = libusb_init(NULL);
+	int err;
+	libusb_device_handle *h;
+	h = libusb_open_device_with_vid_pid(NULL, p_id->vid, p_id->pid);
+	if (!h) {
+		printf("Could not open device\n");
+		goto err1;
+	}
+	if (libusb_kernel_driver_active(h, 0))
+		libusb_detach_kernel_driver(h, 0);
+	err = libusb_claim_interface(h, 0);
+	if (err) {
+		printf("claim failed, err=%i\n", err);
+		goto err2;
+	}
+	err = do_status(h, p_id);
+	if (!err)
+		return h;
+	printf("status failed, err=%i\n", err);
+err2:
+	libusb_release_interface(h, 0);
+	libusb_close(h);
+err1:
+	libusb_exit(NULL);
+	return NULL;
+}
+
 int main(int argc, char const *const argv[])
 {
 	struct usb_id *p_id;
@@ -1275,6 +1311,7 @@ int main(int argc, char const *const argv[])
 	int r;
 	int err;
 	int ret=1;
+	int single = 0;
 	ssize_t cnt;
 	libusb_device_handle *h = NULL;
 	int config = 0;
@@ -1325,6 +1362,7 @@ int main(int argc, char const *const argv[])
 	}
 	if (argc < 2) {
 		curr = p_id->work;
+		single = 0;
 	} else {
 		memset(&w, 0, sizeof(struct usb_work));
 		w.plug = 1;
@@ -1332,46 +1370,35 @@ int main(int argc, char const *const argv[])
 		w.jump_mode = J_HEADER;
 		strncpy(w.filename, argv[1], sizeof(w.filename) - 1);
 		curr = &w;
+		single = 1;
 	}
 	while (curr) {
 //		printf("jump_mode %x\n", curr->jump_mode);
 		err = DoIRomDownload(h, p_id, curr);
-		if (curr->plug && curr->jump_mode) {
-			curr->plug = 0;
-			continue;
-		}
-		if (!curr->next)
+		if ((curr->plug == 0) && (curr->next == NULL))
 			break;
-//		printf("jump_mode %x\n", curr->jump_mode);
-		if (curr->plug || (curr->jump_mode >= J_HEADER)) {
+		err = do_status(h, p_id);
+		printf("jump_mode %x plug=%i err=%i\n", curr->jump_mode, curr->plug, err);
+		if (err) {
+			int retry;
 			/* Rediscovers device */
-			do_status(h, p_id);
-			if (err)
-				goto exit;
 			libusb_release_interface(h, 0);
 			libusb_close(h);
 			libusb_exit(NULL);
-			printf("sleeping\n");
-			sleep(3);
-			printf("done sleeping\n");
-			r = libusb_init(NULL);
-			h = libusb_open_device_with_vid_pid(NULL, p_id->vid, p_id->pid);
-			if (!h) {
-				printf("Could not open device\n");
-				goto exit;
+			for (retry = 0; retry < 10; retry++) {
+				printf("sleeping\n");
+				sleep(3);
+				printf("done sleeping\n");
+				h = open_vid_pid(p_id);
+				if (h)
+					break;
 			}
-			if (libusb_kernel_driver_active(h, 0))
-				libusb_detach_kernel_driver(h, 0);
-			err = libusb_claim_interface(h, 0);
-			if (err) {
-				printf("claim failed, err=%i\n", err);
-				goto exit;
-			}
-			err = do_status(h, p_id);
-			if (err) {
-				printf("status failed, err=%i\n", err);
-				goto exit;
-			}
+			if (!h)
+				goto out;
+		}
+		if (single && curr->plug) {
+			curr->plug = 0;
+			continue;
 		}
 		curr = curr->next;
 	}
