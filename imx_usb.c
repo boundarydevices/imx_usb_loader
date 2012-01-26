@@ -1375,7 +1375,7 @@ int main(int argc, char const *const argv[])
 	while (curr) {
 //		printf("jump_mode %x\n", curr->jump_mode);
 		err = DoIRomDownload(h, p_id, curr);
-		if ((curr->plug == 0) && (curr->next == NULL))
+		if (!curr->next && (!curr->plug || !single))
 			break;
 		err = do_status(h, p_id);
 		printf("jump_mode %x plug=%i err=%i\n", curr->jump_mode, curr->plug, err);
