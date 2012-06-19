@@ -1280,7 +1280,7 @@ libusb_device_handle * open_vid_pid(struct usb_id *p_id)
 	libusb_device_handle *h;
 	h = libusb_open_device_with_vid_pid(NULL, p_id->vid, p_id->pid);
 	if (!h) {
-		printf("Could not open device\n");
+		printf("%s:Could not open device vid=0x%x pid=0x%x\n", __func__, p_id->vid, p_id->pid);
 		goto err1;
 	}
 	if (libusb_kernel_driver_active(h, 0))
@@ -1335,7 +1335,7 @@ int main(int argc, char const *const argv[])
 	if (dev) {
 		err = libusb_open(dev, &h);
 		if (err)
-			printf("Could not open device, err=%i\n", err);
+			printf("%s:Could not open device vid=0x%x pid=0x%x err=%d\n", __func__, mach->vid, mach->pid, err);
 	}
 	libusb_free_device_list(devs, 1);
 
