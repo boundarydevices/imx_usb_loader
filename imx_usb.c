@@ -199,9 +199,19 @@ struct ram_area {
 	unsigned size;
 };
 
+struct mem_work {
+	struct mem_work *next;
+	unsigned type;
+#define MEM_TYPE_READ		0
+#define MEM_TYPE_WRITE		1
+#define MEM_TYPE_MODIFY		2
+	unsigned vals[3];
+};
+
 struct usb_work;
 struct usb_work {
 	struct usb_work *next;
+	struct mem_work *mem;
 	unsigned char filename[256];
 	unsigned char dcd;
 	unsigned char clear_dcd;	//means clear dcd_ptr
@@ -240,13 +250,176 @@ char *skip(char *p, char c)
 	return p;
 }
 
+int end_of_line(char *p)
+{
+	while (*p == ' ') p++;
+	if ((!p[0]) || (*p == '#') || (*p == '\n') || (*p == '\r'))
+		return 1;
+	return 0;
+}
+
+
+void parse_mem_work(struct usb_work *curr, struct mach_id *mach, char *p)
+{
+	struct mem_work *wp;
+	struct mem_work **link;
+	struct mem_work w;
+	int i;
+	char *start = p;
+
+	p = skip(p,':');
+	memset(&w, 0, sizeof(w));
+	if (strncmp(p, "read", 4) == 0) {
+		p += 4;
+		p = skip(p,',');
+		i = MEM_TYPE_READ;
+	} else if (strncmp(p, "write", 5) == 0) {
+		p += 5;
+		p = skip(p,',');
+		i = MEM_TYPE_WRITE;
+	} else if (strncmp(p, "modify", 6) == 0) {
+		p += 6;
+		p = skip(p,',');
+		i = MEM_TYPE_MODIFY;
+	} else {
+		printf("%s: syntax error: %s {%s}\n", mach->file_name, p, start);
+	}
+	w.type = i;
+	i = 0;
+	for (;;) {
+		w.vals[i] = get_val(&p, 16);
+		if (i >= w.type)
+			break;
+		p = skip(p,',');
+		if ((*p == 0) || (*p == '#')) {
+			printf("%s: missing argment: %s {%s}\n", mach->file_name, p, start);
+			return;
+		}
+		i++;
+	}
+	if (!end_of_line(p)) {
+		printf("%s: syntax error: %s {%s}\n", mach->file_name, p, start);
+		return;
+	}
+	wp = (struct mem_work *)malloc(sizeof(struct mem_work));
+	if (!wp)
+		return;
+	link = &curr->mem;
+	while (*link)
+		link = &(*link)->next;
+	*wp = w;
+	*link = wp;
+}
+
+void parse_file_work(struct usb_work *curr, struct mach_id *mach, char *p)
+{
+	char *start = p;
+
+	p = move_string(curr->filename, p, sizeof(curr->filename) - 1);
+	p = skip(p,':');
+	for (;;) {
+		char *q = p;
+		if ((!*p) || (*p == '#')  || (*p == '\n') || (*p == 0x0d))
+			break;
+		if (strncmp(p, "dcd", 3) == 0) {
+			p += 3;
+			p = skip(p,',');
+			curr->dcd = 1;
+		}
+		if (strncmp(p, "clear_dcd", 9) == 0) {
+			p += 9;
+			p = skip(p,',');
+			curr->clear_dcd = 1;
+//			printf("clear_dcd\n");
+		}
+		if (strncmp(p, "plug", 4) == 0) {
+			p += 4;
+			p = skip(p,',');
+			curr->plug = 1;
+//			printf("plug\n");
+		}
+		if (strncmp(p, "load", 4) == 0) {
+			p += 4;
+			curr->load_addr = get_val(&p, 16);
+			p = skip(p,',');
+		}
+		if (strncmp(p, "jump", 4) == 0) {
+			p += 4;
+			curr->jump_mode = J_ADDR;
+			curr->jump_addr = get_val(&p, 16);
+			if (strncmp(p, "header2", 7) == 0) {
+				p += 7;
+				p = skip(p,',');
+				curr->jump_mode = J_HEADER2;
+			} else if (strncmp(p, "header", 6) == 0) {
+				p += 6;
+				p = skip(p,',');
+				curr->jump_mode = J_HEADER;
+			}
+			p = skip(p,',');
+//			printf("jump\n");
+		}
+		if (q == p) {
+			printf("%s: syntax error: %s {%s}\n", mach->file_name, p, start);
+			break;
+		}
+	}
+}
+
+/*
+ * #hid/bulk,[old_header,]max packet size, {ram start, ram size}(repeat valid ram areas)
+ *hid,1024,0x10000000,1G,0x00907000,0x31000
+ *
+ */
+void parse_transfer_type(struct usb_id *usb, struct mach_id *mach, char *p)
+{
+	int i;
+
+	if (strncmp(p, "hid", 3) == 0) {
+		p += 3;
+		p = skip(p,',');
+		usb->mode = MODE_HID;
+	} else if (strncmp(p, "bulk", 4) == 0) {
+		p += 4;
+		p = skip(p,',');
+		usb->mode = MODE_BULK;
+	} else {
+		printf("%s: hid/bulk expected\n", mach->file_name);
+	}
+	if (strncmp(p, "old_header", 10) == 0) {
+		p += 10;
+		p = skip(p,',');
+		usb->header_type = HDR_MX51;
+	} else {
+		usb->header_type = HDR_MX53;
+	}
+	usb->max_transfer = get_val(&p, 10);
+	p = skip(p,',');
+	for (i = 0; i < 8; i++) {
+		usb->ram[i].start = get_val(&p, 10);
+		p = skip(p,',');
+		usb->ram[i].size = get_val(&p, 10);
+		if ((*p == 'G') || (*p == 'g')) {
+			usb->ram[i].size <<= 30;
+			p++;
+		} else if ((*p == 'M') || (*p == 'm')) {
+			usb->ram[i].size <<= 20;
+			p++;
+		} else if ((*p == 'K') || (*p == 'k')) {
+			usb->ram[i].size <<= 10;
+			p++;
+		}
+		p = skip(p,',');
+		if ((*p == '#') || (*p == '\n') || (!*p))
+			break;
+	}
+}
+
 static struct usb_id *parse_conf(struct mach_id *mach)
 {
 	char line[512];
 	FILE *xfile;
 	char *p;
-	char *q;
-	int i;
 	struct usb_work *tail = NULL;
 	struct usb_work *curr = NULL;
 	struct usb_id *usb = (struct usb_id *)malloc(sizeof(struct usb_id));
@@ -280,115 +453,31 @@ static struct usb_id *parse_conf(struct mach_id *mach)
 			continue;
 		}
 		if (!usb->max_transfer) {
-			/*
-			 * #hid/bulk,[old_header,]max packet size, {ram start, ram size}(repeat valid ram areas)
-			 *hid,1024,0x10000000,1G,0x00907000,0x31000
-			 *
-			 */
-			if (strncmp(p, "hid", 3) == 0) {
-				p += 3;
-				p = skip(p,',');
-				usb->mode = MODE_HID;
-			} else if (strncmp(p, "bulk", 4) == 0) {
-				p += 4;
-				p = skip(p,',');
-				usb->mode = MODE_BULK;
-			} else {
-				printf("%s: hid/bulk expected\n", mach->file_name);
-			}
-			if (strncmp(p, "old_header", 10) == 0) {
-				p += 10;
-				p = skip(p,',');
-				usb->header_type = HDR_MX51;
-			} else {
-				usb->header_type = HDR_MX53;
-			}
-			usb->max_transfer = get_val(&p, 10);
-			p = skip(p,',');
-			for (i = 0; i < 8; i++) {
-				usb->ram[i].start = get_val(&p, 10);
-				p = skip(p,',');
-				usb->ram[i].size = get_val(&p, 10);
-				if ((*p == 'G') || (*p == 'g')) {
-					usb->ram[i].size <<= 30;
-					p++;
-				} else if ((*p == 'M') || (*p == 'm')) {
-					usb->ram[i].size <<= 20;
-					p++;
-				} else if ((*p == 'K') || (*p == 'k')) {
-					usb->ram[i].size <<= 10;
-					p++;
-				}
-				p = skip(p,',');
-				if ((*p == '#') || (*p == '\n') || (!*p))
-					break;
-			}
+			parse_transfer_type(usb, mach, p);
 			continue;
 		}
 		/*
 		 * #file:dcd,plug,load nnn,jump [nnn/header/header2]
 		 */
-		curr = (struct usb_work *)malloc(sizeof(struct usb_work));
-		if (!curr)
-			break;
-		memset(curr, 0, sizeof(struct usb_work));
-		curr->load_addr = usb->ram[0].start + 0x03f00000;	/* default */
-
-		p = move_string(curr->filename, p, sizeof(curr->filename) - 1);
-		p = skip(p,':');
-		for (;;) {
-			q = p;
-			if ((!*p) || (*p == '#')  || (*p == '\n') || (*p == 0x0d))
-					break;
-			if (strncmp(p, "dcd", 3) == 0) {
-				p += 3;
-				p = skip(p,',');
-				curr->dcd = 1;
-			}
-			if (strncmp(p, "clear_dcd", 9) == 0) {
-				p += 9;
-				p = skip(p,',');
-				curr->clear_dcd = 1;
-//				printf("clear_dcd\n");
-			}
-			if (strncmp(p, "plug", 4) == 0) {
-				p += 4;
-				p = skip(p,',');
-				curr->plug = 1;
-//				printf("plug\n");
-			}
-			if (strncmp(p, "load", 4) == 0) {
-				p += 4;
-				curr->load_addr = get_val(&p, 16);
-				p = skip(p,',');
-			}
-			if (strncmp(p, "jump", 4) == 0) {
-				p += 4;
-				curr->jump_mode = J_ADDR;
-				curr->jump_addr = get_val(&p, 16);
-				if (strncmp(p, "header2", 7) == 0) {
-					p += 7;
-					p = skip(p,',');
-					curr->jump_mode = J_HEADER2;
-				} else if (strncmp(p, "header", 6) == 0) {
-					p += 6;
-					p = skip(p,',');
-					curr->jump_mode = J_HEADER;
-				}
-				p = skip(p,',');
-//				printf("jump\n");
-			}
-			if (q == p) {
-				printf("%s: syntax error: %s {%s}\n", mach->file_name, p, line);
+		if (!curr) {
+			curr = (struct usb_work *)malloc(sizeof(struct usb_work));
+			if (!curr)
 				break;
-			}
+			memset(curr, 0, sizeof(struct usb_work));
+			if (!usb->work)
+				usb->work = curr;
+			if (tail)
+				tail->next = curr;
+			tail = curr;
+			curr->load_addr = usb->ram[0].start + 0x03f00000;	/* default */
 		}
-		if (!usb->work)
-			usb->work = curr;
-		if (tail) {
-			tail->next = curr;
+
+		if (p[0] == ':') {
+			parse_mem_work(curr, mach, p);
+		} else {
+			parse_file_work(curr, mach, p);
+			curr = NULL;
 		}
-		tail = curr;
 	}
 	return usb;
 }
@@ -646,6 +735,31 @@ static int write_memory(struct libusb_device_handle *h, struct usb_id *p_id, uns
 	return err;
 }
 
+int perform_mem_work(struct libusb_device_handle *h, struct usb_id *p_id, struct mem_work *mem)
+{
+	unsigned tmp, tmp2;
+
+	while (mem) {
+		switch (mem->type) {
+		case MEM_TYPE_READ:
+			read_memory(h, p_id, mem->vals[0], (unsigned char *)&tmp, 4);
+			printf("*%x is %x\n", mem->vals[0], tmp);
+			break;
+		case MEM_TYPE_WRITE:
+			write_memory(h, p_id, mem->vals[0], mem->vals[1]);
+			printf("%x write %x\n", mem->vals[0], mem->vals[1]);
+			break;
+		case MEM_TYPE_MODIFY:
+			read_memory(h, p_id, mem->vals[0], (unsigned char *)&tmp, 4);
+			tmp2 = (tmp & ~mem->vals[1]) | mem->vals[2];
+			printf("%x = %x to %x\n", mem->vals[0], tmp, tmp2);
+			write_memory(h, p_id, mem->vals[0], tmp2);
+			break;
+		}
+		mem = mem->next;
+	}
+}
+
 static int write_dcd_table_ivt(struct libusb_device_handle *h, struct usb_id *p_id, struct ivt_header *hdr, unsigned char *file_start, unsigned cnt)
 {
 	unsigned char *dcd_end;
@@ -816,8 +930,9 @@ void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr)
 	}
 }
 
-int verify_memory(struct libusb_device_handle *h, struct usb_id *p_id, FILE *xfile, unsigned offset, unsigned addr, unsigned size)
+int verify_memory(struct libusb_device_handle *h, struct usb_id *p_id, FILE *xfile, unsigned offset, unsigned addr, unsigned size, unsigned header)
 {
+	int mismatch = 0;
 	unsigned char file_buf[1024];
 	fseek(xfile, offset, SEEK_SET);
 
@@ -841,12 +956,31 @@ int verify_memory(struct libusb_device_handle *h, struct usb_id *p_id, FILE *xfi
 			request = get_min(cnt, sizeof(mem_buf));
 			read_memory(h, p_id, addr, mem_buf, request);
 			if (memcmp(p, mem_buf, request)) {
-				printf("!!!!mismatch addr=0x%08x, offset=0x%08x\n", addr, offset);
-				dump_long(p, request, offset);
-				printf("\n");
-				dump_long(mem_buf, request, addr);
-				printf("\n");
-				return -1;
+				unsigned char * m = mem_buf;
+				/* mismatch on DCD_PTR is normal because we zero this after executing it. */
+				if (((addr + request) > header) && (addr < (header + sizeof(struct ivt_header)))) {
+					printf("header mismatch, probably zeroed DCD_PTR\n");
+				} else {
+					if (!mismatch)
+						printf("!!!!mismatch\n");
+					mismatch++;
+				}
+				while (request) {
+					unsigned req = get_min(request, 32);
+					if (memcmp(p, m, req)) {
+						dump_long(p, req, offset);
+						dump_long(m, req, addr);
+						printf("\n");
+					}
+					p += req;
+					m+= req;
+					offset += req;
+					addr += req;
+					cnt -= req;
+					request -= req;
+				}
+				if (mismatch >= 5)
+					return -1;
 			}
 			p += request;
 			offset += request;
@@ -854,8 +988,9 @@ int verify_memory(struct libusb_device_handle *h, struct usb_id *p_id, FILE *xfi
 			cnt -= request;
 		}
 	}
-	printf("Verify success\n");
-	return 0;
+	if (!mismatch)
+		printf("Verify success\n");
+	return mismatch ? -1 : 0;
 }
 
 int is_header(struct usb_id *p_id, unsigned char *p)
@@ -1213,7 +1348,7 @@ int DoIRomDownload(struct libusb_device_handle *h, struct usb_id *p_id, struct u
 			do_status(h, p_id);
 		}
 		if (p_id->mode == MODE_HID) if (type == FT_APP) {
-//			verify_memory(h, p_id, xfile, skip + 20, dladdr + 20, fsize - 20);
+//			verify_memory(h, p_id, xfile, skip, dladdr, fsize, header_addr);
 			printf("jumping to 0x%08x\n", header_addr);
 			jump_command[2] = (unsigned char)(header_addr >> 24);
 			jump_command[3] = (unsigned char)(header_addr >> 16);
@@ -1373,8 +1508,11 @@ int main(int argc, char const *const argv[])
 		single = 1;
 	}
 	while (curr) {
+		if (curr->mem)
+			perform_mem_work(h, p_id, curr->mem);
 //		printf("jump_mode %x\n", curr->jump_mode);
-		err = DoIRomDownload(h, p_id, curr);
+		if (curr->filename[0])
+			err = DoIRomDownload(h, p_id, curr);
 		if (!curr->next && (!curr->plug || !single))
 			break;
 		err = do_status(h, p_id);
