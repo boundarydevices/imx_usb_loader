@@ -653,7 +653,7 @@ struct old_app_header {
 #define V(a) (((a)>>24)&0xff),(((a)>>16)&0xff),(((a)>>8)&0xff), ((a)&0xff)
 
 
-static unsigned read_memory(struct libusb_device_handle *h, struct usb_id *p_id, unsigned addr, unsigned char *dest, unsigned cnt)
+static int read_memory(struct libusb_device_handle *h, struct usb_id *p_id, unsigned addr, unsigned char *dest, unsigned cnt)
 {
 //							address, format, data count, data, type
 	static unsigned char read_reg_command[] = {1,1, V(0),   0x20, V(0x00000004), V(0), 0x00};
@@ -661,7 +661,9 @@ static unsigned read_memory(struct libusb_device_handle *h, struct usb_id *p_id,
 	int retry = 0;
 	int last_trans;
 	int err;
+	int rem;
 	unsigned char tmp[64];
+	unsigned char *p;
 	read_reg_command[2] = (unsigned char)(addr >> 24);
 	read_reg_command[3] = (unsigned char)(addr >> 16);
 	read_reg_command[4] = (unsigned char)(addr >> 8);
@@ -675,15 +677,30 @@ static unsigned read_memory(struct libusb_device_handle *h, struct usb_id *p_id,
 		err = transfer(h, 1, read_reg_command, 16, &last_trans, p_id);
 		if (!err)
 			break;
-		printf("reade_reg_command err=%i, last_trans=%i\n", err, last_trans);
+		printf("read_reg_command err=%i, last_trans=%i\n", err, last_trans);
 		if (retry > 5) {
 			return -4;
 		}
 		retry++;
 	}
-	err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
-	if (err)
-		printf("r3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+	if (p_id->mode != MODE_HID) {
+		err = transfer(h, 3, tmp, 4, &last_trans, p_id);
+		if (err) {
+			printf("r3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+			return err;
+		}
+	}
+	rem = cnt;
+	p = tmp;
+	while (rem) {
+		err = transfer(h, 3, p, rem, &last_trans, p_id);
+		if (err) {
+			printf("r3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+			break;
+		}
+		p += last_trans;
+		rem -= last_trans;
+	}
 	if (p_id->mode == MODE_HID) {
 		err = transfer(h, 4, tmp, sizeof(tmp), &last_trans, p_id);
 		if (err)
@@ -930,11 +947,13 @@ void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr)
 	}
 }
 
-int verify_memory(struct libusb_device_handle *h, struct usb_id *p_id, FILE *xfile, unsigned offset, unsigned addr, unsigned size, unsigned header)
+int verify_memory(struct libusb_device_handle *h, struct usb_id *p_id,
+		FILE *xfile, unsigned offset, unsigned addr, unsigned size,
+		unsigned char *verify_buffer, unsigned verify_cnt)
 {
 	int mismatch = 0;
 	unsigned char file_buf[1024];
-	fseek(xfile, offset, SEEK_SET);
+	fseek(xfile, offset + verify_cnt, SEEK_SET);
 
 	while (size) {
 		unsigned char mem_buf[64];
@@ -946,25 +965,31 @@ int verify_memory(struct libusb_device_handle *h, struct usb_id *p_id, FILE *xfi
 			if (request > cnt)
 				request = cnt;
 		}
-		cnt = fread(p, 1, request, xfile);
-		if (cnt <= 0) {
-			printf("Unexpected end of file, request=0x%0x, size=0x%x, cnt=%i\n", request, size, cnt);
-			return -1;
+		if (verify_cnt) {
+			p = verify_buffer;
+			cnt = get_min(request, verify_cnt);
+			verify_buffer += cnt;
+			verify_cnt -= cnt;
+		} else {
+			cnt = fread(p, 1, request, xfile);
+			if (cnt <= 0) {
+				printf("Unexpected end of file, request=0x%0x, size=0x%x, cnt=%i\n", request, size, cnt);
+				return -1;
+			}
 		}
 		size -= cnt;
 		while (cnt) {
+			int ret;
 			request = get_min(cnt, sizeof(mem_buf));
-			read_memory(h, p_id, addr, mem_buf, request);
+			ret = read_memory(h, p_id, addr, mem_buf, request);
+			if (ret < 0)
+				return ret;
 			if (memcmp(p, mem_buf, request)) {
 				unsigned char * m = mem_buf;
-				/* mismatch on DCD_PTR is normal because we zero this after executing it. */
-				if (((addr + request) > header) && (addr < (header + sizeof(struct ivt_header)))) {
-					printf("header mismatch, probably zeroed DCD_PTR\n");
-				} else {
-					if (!mismatch)
-						printf("!!!!mismatch\n");
-					mismatch++;
-				}
+				if (!mismatch)
+					printf("!!!!mismatch\n");
+				mismatch++;
+
 				while (request) {
 					unsigned req = get_min(request, 32);
 					if (memcmp(p, m, req)) {
@@ -1116,6 +1141,167 @@ int get_dl_start(struct usb_id *p_id, unsigned char *p, unsigned char *file_star
 
 int do_status(libusb_device_handle *h, struct usb_id *p_id);
 
+int process_header(struct libusb_device_handle *h, struct usb_id *p_id,
+		struct usb_work *curr, unsigned char *buf, int cnt,
+		unsigned *p_dladdr, unsigned *p_max_length, unsigned *p_plugin,
+		unsigned *p_header_addr)
+{
+	int ret;
+	unsigned header_max = 0x800;
+	unsigned header_inc = 0x400;
+	unsigned header_offset = 0;
+	int header_cnt = 0;
+	unsigned char *p = buf;
+
+	while (header_offset < header_max) {
+//		printf("header_offset=%x\n", header_offset);
+		if (is_header(p_id, p)) {
+			ret = get_dl_start(p_id, p, buf, cnt, p_dladdr, p_max_length, p_plugin, p_header_addr);
+			if (ret < 0) {
+				printf("!!get_dl_start returned %i\n", ret);
+				return ret;
+			}
+			if (curr->dcd) {
+				ret = perform_dcd(h, p_id, p, buf, cnt);
+				if (ret < 0) {
+					printf("!!perform_dcd returned %i\n", ret);
+					return ret;
+				}
+				curr->dcd = 0;
+				if ((!curr->jump_mode) && (!curr->plug)) {
+					printf("!!dcd done, nothing else requested\n", ret);
+					return 0;
+				}
+			}
+			if (curr->clear_dcd) {
+				ret = clear_dcd_ptr(h, p_id, p, buf, cnt);
+				if (ret < 0) {
+					printf("!!clear_dcd returned %i\n", ret);
+					return ret;
+				}
+			}
+			if (*p_plugin && (!curr->plug) && (!header_cnt)) {
+				header_cnt++;
+				header_max = header_offset + *p_max_length + 0x400;
+				if (header_max > cnt - 32)
+					header_max = cnt - 32;
+				printf("header_max=%x\n", header_max);
+				header_inc = 4;
+			} else {
+				if (!*p_plugin)
+					curr->plug = 0;
+				break;
+			}
+		}
+		header_offset += header_inc;
+		p += header_inc;
+	}
+	return header_offset;
+}
+
+int load_file(struct libusb_device_handle *h, struct usb_id *p_id,
+		unsigned char *p, int cnt, unsigned char *buf, unsigned buf_cnt,
+		unsigned dladdr, unsigned fsize, unsigned char type, FILE* xfile)
+{
+//							address, format, data count, data, type
+	static unsigned char dlCommand[] =    {0x04,0x04, V(0),  0x00, V(0x00000020), V(0), 0xaa};
+	int last_trans, err;
+	int retry = 0;
+	unsigned transferSize=0;
+	int max = p_id->max_transfer;
+	unsigned char tmp[64];
+
+	dlCommand[2] = (unsigned char)(dladdr>>24);
+	dlCommand[3] = (unsigned char)(dladdr>>16);
+	dlCommand[4] = (unsigned char)(dladdr>>8);
+	dlCommand[5] = (unsigned char)(dladdr);
+
+	dlCommand[7] = (unsigned char)(fsize>>24);
+	dlCommand[8] = (unsigned char)(fsize>>16);
+	dlCommand[9] = (unsigned char)(fsize>>8);
+	dlCommand[10] = (unsigned char)(fsize);
+	dlCommand[15] =  type;
+
+	for (;;) {
+		err = transfer(h, 1, dlCommand, 16, &last_trans, p_id);
+		if (!err)
+			break;
+		printf("dlCommand err=%i, last_trans=%i\n", err, last_trans);
+		if (retry > 5)
+			return -4;
+		retry++;
+	}
+	retry = 0;
+	if (p_id->mode == MODE_BULK) {
+		err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
+		if (err)
+			printf("in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+	}
+
+	while (1) {
+		int retry;
+		if (cnt > (int)(fsize-transferSize)) cnt = (fsize-transferSize);
+		if (cnt <= 0)
+			break;
+		retry = 0;
+		while (cnt) {
+			err = transfer(h, 2, p, get_min(cnt, max), &last_trans, p_id);
+//			printf("err=%i, last_trans=0x%x, cnt=0x%x, max=0x%x\n", err, last_trans, cnt, max);
+			if (err) {
+				printf("out err=%i, last_trans=%i cnt=0x%x max=0x%x transferSize=0x%X retry=%i\n", err, last_trans, cnt, max, transferSize, retry);
+				if (retry >= 10) {
+					printf("Giving up\n");
+					return err;
+				}
+				if (max >= 16)
+					max >>= 1;
+				else
+					max <<= 1;
+//				err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
+//				printf("in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+				usleep(10000);
+				retry++;
+				continue;
+			}
+			max = p_id->max_transfer;
+			retry = 0;
+			if (cnt < last_trans) {
+				printf("error: last_trans=0x%x, attempted only=0%x\n", last_trans, cnt);
+				cnt = last_trans;
+			}
+			if (!last_trans) {
+				printf("Nothing last_trans, err=%i\n", err);
+				break;
+			}
+			p += last_trans;
+			cnt -= last_trans;
+			transferSize += last_trans;
+		}
+		if (!last_trans) break;
+		if (feof(xfile)) break;
+		cnt = fsize - transferSize;
+		if (cnt <= 0)
+			break;
+		cnt = fread(buf, 1 , get_min(cnt, buf_cnt), xfile);
+		p = buf;
+	}
+	printf("\r\n<<<%i, %i bytes>>>\r\n", fsize, transferSize);
+	if (p_id->mode == MODE_HID) {
+		err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
+		if (err)
+			printf("3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+		err = transfer(h, 4, tmp, sizeof(tmp), &last_trans, p_id);
+		if (err)
+			printf("4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+	} else {
+//		err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
+//		if (err)
+//			printf("3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+		do_status(h, p_id);
+	}
+	return transferSize;
+}
+
 static const unsigned char statusCommand[]={5,5,0,0,0,0, 0, 0,0,0,0, 0,0,0,0, 0};
 #define MAX_IN_LENGTH 100 // max length for user input strings
 
@@ -1123,262 +1309,186 @@ static const unsigned char statusCommand[]={5,5,0,0,0,0, 0, 0,0,0,0, 0,0,0,0, 0}
 #define FT_CSF	0xcc
 #define FT_DCD	0xee
 #define FT_LOAD_ONLY	0x00
-int DoIRomDownload(struct libusb_device_handle *h, struct usb_id *p_id, struct usb_work *curr)
+int DoIRomDownload(struct libusb_device_handle *h, struct usb_id *p_id, struct usb_work *curr, int verify)
 {
-	FILE* xfile = NULL;
-	unsigned char type;
-	unsigned plugin = 0;
 //							address, format, data count, data, type
-	static unsigned char dlCommand[] =    {0x04,0x04, V(0),  0x00, V(0x00000020), V(0), 0xaa};
 	static unsigned char jump_command[] = {0x0b,0x0b, V(0),  0x00, V(0x00000000), V(0), 0x00};
-	printf("%s\n", curr->filename);
-	if (!xfile) {
-		xfile = fopen(curr->filename, "rb" );
-		if (!xfile)
-			printf("\r\nerror, can not open input file: %s\r\n", curr->filename);
-	}
 
-	if (xfile) {
-		unsigned dladdr = 0;
-		unsigned max_length;
-		int max = p_id->max_transfer;
-		int last_trans, err;
+	int ret;
+	FILE* xfile;
+	unsigned char type;
+	unsigned fsize;
+	unsigned header_offset;
+	int cnt;
+	struct ivt_header *hdr;
+	struct old_app_header *ohdr;
+	unsigned file_base;
+	int last_trans, err;
 #define BUF_SIZE (1024*16)
-		unsigned char buf[BUF_SIZE];
-		unsigned transferSize=0;
-		unsigned fsize = get_file_size(xfile);
-		unsigned char *p = buf;
-		int cnt = fread(buf, 1 , BUF_SIZE, xfile);
-		unsigned char tmp[64];
-		unsigned skip = 0;
-		unsigned header_addr = 0;
-		unsigned header_offset = 0;
-		unsigned file_base;
-		int retry = 0;
-		int ret;
-		struct ivt_header *hdr;
-		struct old_app_header *ohdr;
-		if (cnt < 0x20) {
-			fclose(xfile);
-			return -2;
+	unsigned char *buf = NULL;
+	unsigned char *verify_buffer = NULL;
+	unsigned verify_cnt;
+	unsigned char *p;
+	unsigned char tmp[64];
+	unsigned dladdr = 0;
+	unsigned max_length;
+	unsigned plugin = 0;
+	unsigned header_addr = 0;
+
+	unsigned skip = 0;
+	unsigned transferSize=0;
+	int retry = 0;
+
+	printf("%s\n", curr->filename);
+	xfile = fopen(curr->filename, "rb" );
+	if (!xfile) {
+		printf("\r\nerror, can not open input file: %s\r\n", curr->filename);
+		return -5;
+	}
+	buf = malloc(BUF_SIZE);
+	if (!buf) {
+		printf("\r\nerror, out of memory\r\n");
+		ret = -2;
+		goto cleanup;
+	}
+	fsize = get_file_size(xfile);
+	cnt = fread(buf, 1 , BUF_SIZE, xfile);
+
+	if (cnt < 0x20) {
+		printf("\r\nerror, file: %s is too small\r\n", curr->filename);
+		ret = -2;
+		goto cleanup;
+	}
+	max_length = fsize;
+	if (curr->dcd || curr->clear_dcd || curr->plug || (curr->jump_mode >= J_HEADER)) {
+		ret = process_header(h, p_id, curr, buf, cnt,
+				&dladdr, &max_length, &plugin, &header_addr);
+		if (ret < 0)
+			goto cleanup;
+		header_offset = ret;
+		if ((!curr->jump_mode) && (!curr->plug)) {
+			/*  nothing else requested */
+			ret = 0;
+			goto cleanup;
 		}
-		max_length = fsize;
-		if (curr->dcd || curr->clear_dcd || curr->plug || (curr->jump_mode >= J_HEADER)) {
-			unsigned header_max = 0x800;
-			unsigned header_inc = 0x400;
-			int header_cnt = 0;
-			while (header_offset < header_max) {
-//				printf("header_offset=%x\n", header_offset);
-				if (is_header(p_id, p)) {
-					ret = get_dl_start(p_id, p, buf, cnt, &dladdr, &max_length, &plugin, &header_addr);
-					if (ret < 0) {
-						printf("!!get_dl_start returned %i\n", ret);
-						fclose(xfile);
-						return ret;
-					}
-					if (curr->dcd) {
-						ret = perform_dcd(h, p_id, p, buf, cnt);
-						if (ret < 0) {
-							printf("!!perform_dcd returned %i\n", ret);
-							fclose(xfile);
-							return ret;
-						}
-						curr->dcd = 0;
-						if ((!curr->jump_mode) && (!curr->plug)) {
-							printf("!!dcd done, nothing else requested\n", ret);
-							fclose(xfile);
-							return 0;
-						}
-					}
-					if (curr->clear_dcd) {
-						ret = clear_dcd_ptr(h, p_id, p, buf, cnt);
-						if (ret < 0) {
-							printf("!!clear_dcd returned %i\n", ret);
-							fclose(xfile);
-							return ret;
-						}
-					}
-					if (plugin && (!curr->plug) && (!header_cnt)) {
-						header_cnt++;
-						header_max = header_offset + max_length + 0x400;
-						if (header_max > BUF_SIZE - 32)
-							header_max = BUF_SIZE - 32;
-						printf("header_max=%x\n", header_max);
-						header_inc = 4;
-					} else {
-						if (!plugin)
-							curr->plug = 0;
-						break;
-					}
-				}
-				header_offset += header_inc;
-				p += header_inc;
-			}
-		} else {
-			dladdr = curr->load_addr;
-			printf("load_addr=%x\n", curr->load_addr);
-			header_addr = dladdr;
-			header_offset = 0;
+	} else {
+		dladdr = curr->load_addr;
+		printf("load_addr=%x\n", curr->load_addr);
+		header_addr = dladdr;
+		header_offset = 0;
+	}
+	if (plugin && (!curr->plug)) {
+		printf("Only plugin header found\n");
+		ret = -1;
+		goto cleanup;
+	}
+	if (!dladdr) {
+		printf("\nunknown load address\r\n");
+		ret = -3;
+		goto cleanup;
+	}
+	file_base = header_addr - header_offset;
+	type = (curr->plug || curr->jump_mode) ? FT_APP : FT_LOAD_ONLY;
+	if (p_id->mode == MODE_BULK) if (type == FT_APP) {
+		/* No jump command, dladdr should point to header */
+		dladdr = header_addr;
+	}
+	if (file_base > dladdr) {
+		max_length -= (file_base - dladdr);
+		dladdr = file_base;
+	}
+	skip = dladdr - file_base;
+	if (skip > cnt) {
+		if (skip > fsize) {
+			printf("skip(0x%08x) > fsize(0x%08x) file_base=0x%08x, header_offset=0x%x\n", skip, fsize, file_base, header_offset);
+			ret = -4;
+			goto cleanup;
 		}
-		if (plugin && (!curr->plug)) {
-			printf("Only plugin header found\n");
-			fclose(xfile);
-			return -1;
-		}
-		if (!dladdr) {
-			printf("\nunknown load address\r\n");
-			fclose(xfile);
-			return -3;
-		}
-		file_base = header_addr - header_offset;
-		if (p_id->mode == MODE_BULK) if (type == FT_APP) {
-			/* No jump command, dladdr should point to header */
-			dladdr = header_addr;
-		}
-		if (file_base > dladdr) {
-			max_length -= (file_base - dladdr);
-			dladdr = file_base;
-		}
-		skip = dladdr - file_base;
-		if (skip > cnt) {
-			if (skip > fsize) {
-				printf("skip(0x%08x) > fsize(0x%08x) file_base=0x%08x, header_offset=0x%x\n", skip, fsize, file_base, header_offset);
-				return -4;
-			}
-			fseek(xfile, skip, SEEK_SET);
-			cnt -= skip;
-			fsize -= skip;
-			skip = 0;
-			cnt = fread(buf, 1 , BUF_SIZE, xfile);
-		}
-		p = &buf[skip];
+		fseek(xfile, skip, SEEK_SET);
 		cnt -= skip;
 		fsize -= skip;
-		if (fsize > max_length)
-			fsize = max_length;
-		type = (curr->plug || curr->jump_mode) ? FT_APP : FT_LOAD_ONLY;
-		dlCommand[15] = type;
-		printf("\nloading binary file(%s) to %08x, skip=%x, fsize=%x type=%x\r\n", curr->filename, dladdr, skip, fsize, dlCommand[15]);
+		skip = 0;
+		cnt = fread(buf, 1 , BUF_SIZE, xfile);
+	}
+	p = &buf[skip];
+	cnt -= skip;
+	fsize -= skip;
+	if (fsize > max_length)
+		fsize = max_length;
+	if (verify) {
+		/*
+		 * we need to save header for verification
+		 * because some of the file is changed
+		 * before download
+		 */
+		verify_buffer = malloc(cnt);
+		verify_cnt = cnt;
+		if (!verify_buffer) {
+			printf("\r\nerror, out of memory\r\n");
+			ret = -2;
+			goto cleanup;
+		}
+		memcpy(verify_buffer, p, cnt);
+		if ((type == FT_APP) && (p_id->mode != MODE_HID)) {
+			type = FT_LOAD_ONLY;
+			verify = 2;
+		}
+	}
+	printf("\nloading binary file(%s) to %08x, skip=%x, fsize=%x type=%x\r\n", curr->filename, dladdr, skip, fsize, type);
+	ret = load_file(h, p_id, p, cnt, buf, BUF_SIZE,
+			dladdr, fsize, type, xfile);
+	if (ret < 0)
+		goto cleanup;
+	transferSize = ret;
 
-		dlCommand[2] = (unsigned char)(dladdr>>24);
-		dlCommand[3] = (unsigned char)(dladdr>>16);
-		dlCommand[4] = (unsigned char)(dladdr>>8);
-		dlCommand[5] = (unsigned char)(dladdr);
+	if (verify) {
+		ret = verify_memory(h, p_id, xfile, skip, dladdr, fsize, verify_buffer, verify_cnt);
+		if (ret < 0)
+			goto cleanup;
+		if (verify == 2) {
+			if (verify_cnt > 64)
+				verify_cnt = 64;
+			ret = load_file(h, p_id, verify_buffer, verify_cnt,
+					buf, BUF_SIZE, dladdr, verify_cnt,
+					FT_APP, xfile);
+			if (ret < 0)
+				goto cleanup;
 
-		dlCommand[7] = (unsigned char)(fsize>>24);
-		dlCommand[8] = (unsigned char)(fsize>>16);
-		dlCommand[9] = (unsigned char)(fsize>>8);
-		dlCommand[10] = (unsigned char)(fsize);
-
+		}
+	}
+	if (p_id->mode == MODE_HID) if (type == FT_APP) {
+		printf("jumping to 0x%08x\n", header_addr);
+		jump_command[2] = (unsigned char)(header_addr >> 24);
+		jump_command[3] = (unsigned char)(header_addr >> 16);
+		jump_command[4] = (unsigned char)(header_addr >> 8);
+		jump_command[5] = (unsigned char)(header_addr);
+		//Any command will initiate jump for mx51, jump address is ignored by mx51
+		retry = 0;
 		for (;;) {
-			err = transfer(h, 1, dlCommand, 16, &last_trans, p_id);
+			err = transfer(h, 1, jump_command, 16, &last_trans, p_id);
 			if (!err)
 				break;
-			printf("dlCommand err=%i, last_trans=%i\n", err, last_trans);
+			printf("jump_command err=%i, last_trans=%i\n", err, last_trans);
 			if (retry > 5) {
-				fclose(xfile);
 				return -4;
 			}
 			retry++;
 		}
-		retry = 0;
-		if (p_id->mode == MODE_BULK) {
-			err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
-			if (err)
-				printf("in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-		}
-
-		while (1) {
-			int retry;
-			int c;
-			if (cnt > (int)(fsize-transferSize)) cnt = (fsize-transferSize);
-			if (cnt <= 0)
-				break;
-			retry = 0;
-			c = cnt;
-			while (c) {
-				err = transfer(h, 2, p, get_min(c, max), &last_trans, p_id);
-//				printf("err=%i, last_trans=0x%x, c=0x%x, max=0x%x\n", err, last_trans, c, max);
-				if (err) {
-					printf("out err=%i, last_trans=%i c=0x%x max=0x%x transferSize=0x%X retry=%i\n", err, last_trans, c, max, transferSize, retry);
-					if (retry >= 10)
-						break;
-					if (max >= 16)
-						max >>= 1;
-					else
-						max <<= 1;
-//					err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
-//					printf("in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-					usleep(10000);
-					retry++;
-					continue;
-				}
-				max = p_id->max_transfer;
-				retry = 0;
-				if (c < last_trans) {
-					printf("error: last_trans=0x%x, attempted only=0%x\n", last_trans, c);
-					c = last_trans;
-				}
-				if (!last_trans) {
-					printf("Nothing last_trans, err=%i\n", err);
-					break;
-				}
-				p += last_trans;
-				c -= last_trans;
-				transferSize += last_trans;
-			}
-			if (!last_trans) break;
-			if (feof(xfile)) break;
-			cnt = fread(buf, 1 , BUF_SIZE, xfile);
-			p = buf;
-		}
-		printf("\r\n<<<%i, %i bytes>>>\r\n", fsize, transferSize);
-
-		if (p_id->mode == MODE_HID) {
-			err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
-			if (err)
-				printf("3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-			err = transfer(h, 4, tmp, sizeof(tmp), &last_trans, p_id);
-			if (err)
-				printf("4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-		} else {
-//			err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
-//			if (err)
-//				printf("3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-			do_status(h, p_id);
-		}
-		if (p_id->mode == MODE_HID) if (type == FT_APP) {
-//			verify_memory(h, p_id, xfile, skip, dladdr, fsize, header_addr);
-			printf("jumping to 0x%08x\n", header_addr);
-			jump_command[2] = (unsigned char)(header_addr >> 24);
-			jump_command[3] = (unsigned char)(header_addr >> 16);
-			jump_command[4] = (unsigned char)(header_addr >> 8);
-			jump_command[5] = (unsigned char)(header_addr);
-			//Any command will initiate jump for mx51, jump address is ignored by mx51
-			retry = 0;
-			for (;;) {
-				err = transfer(h, 1, jump_command, 16, &last_trans, p_id);
-				if (!err)
-					break;
-				printf("jump_command err=%i, last_trans=%i\n", err, last_trans);
-				if (retry > 5) {
-					return -4;
-				}
-				retry++;
-			}
+		memset(tmp, 0, sizeof(tmp));
+		err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
+		printf("j3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+		if (0) if (p_id->mode == MODE_HID) {
 			memset(tmp, 0, sizeof(tmp));
-			err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
-			printf("j3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-			if (p_id->mode == MODE_HID) {
-				memset(tmp, 0, sizeof(tmp));
-				err = transfer(h, 4, tmp, sizeof(tmp), &last_trans, p_id);
-				printf("j4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-			}
+			err = transfer(h, 4, tmp, sizeof(tmp), &last_trans, p_id);
+			printf("j4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
 		}
-		fclose(xfile);
-		return (fsize == transferSize) ? 0 : -6;
 	}
-	return -5;
+	ret = (fsize == transferSize) ? 0 : -16;
+cleanup:
+	fclose(xfile);
+	free(verify_buffer);
+	free(buf);
+	return ret;
 }
 
 int do_status(libusb_device_handle *h, struct usb_id *p_id)
@@ -1450,9 +1560,10 @@ int main(int argc, char const *const argv[])
 	ssize_t cnt;
 	libusb_device_handle *h = NULL;
 	int config = 0;
-	int i;
+	int verify = 0;
 	struct usb_work w;
 	struct usb_work *curr;
+	int i = 1;
 
 	struct mach_id *list = parse_imx_conf("imx_usb.conf");
 	if (!list)
@@ -1495,24 +1606,40 @@ int main(int argc, char const *const argv[])
 		printf("status failed\n");
 		goto out;
 	}
-	if (argc < 2) {
-		curr = p_id->work;
-		single = 0;
-	} else {
+	curr = p_id->work;
+	single = 0;
+	if (argc > i) {
+		if (!strcmp(argv[i], "-v")) {
+			verify = 1;
+			i++;
+		}
+	}
+	if (argc > i) {
 		memset(&w, 0, sizeof(struct usb_work));
 		w.plug = 1;
 		w.dcd = 1;
 		w.jump_mode = J_HEADER;
-		strncpy(w.filename, argv[1], sizeof(w.filename) - 1);
+		strncpy(w.filename, argv[i], sizeof(w.filename) - 1);
 		curr = &w;
 		single = 1;
+		i++;
+	}
+	if (argc > i) {
+		if (!strcmp(argv[i], "-v")) {
+			verify = 1;
+			i++;
+		}
 	}
 	while (curr) {
 		if (curr->mem)
 			perform_mem_work(h, p_id, curr->mem);
 //		printf("jump_mode %x\n", curr->jump_mode);
 		if (curr->filename[0])
-			err = DoIRomDownload(h, p_id, curr);
+			err = DoIRomDownload(h, p_id, curr, verify);
+		if (err) {
+			err = do_status(h, p_id);
+			break;
+		}
 		if (!curr->next && (!curr->plug || !single))
 			break;
 		err = do_status(h, p_id);
