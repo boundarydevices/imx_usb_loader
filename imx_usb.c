@@ -1480,7 +1480,8 @@ int DoIRomDownload(struct libusb_device_handle *h, struct usb_id *p_id, struct u
 		}
 		memset(tmp, 0, sizeof(tmp));
 		err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
-		printf("j3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+		if (err)
+			printf("j3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
 		if (0) if (p_id->mode == MODE_HID) {
 			memset(tmp, 0, sizeof(tmp));
 			err = transfer(h, 4, tmp, sizeof(tmp), &last_trans, p_id);
