@@ -600,8 +600,10 @@ int transfer(struct libusb_device_handle *h, int report, unsigned char *p, unsig
 			err = libusb_interrupt_transfer(h, 1 + EP_IN, tmp, cnt + 1, last_trans, 1000);
 			if (err >= 0) {
 				if (tmp[0] == (unsigned char)report)
-					if (*last_trans > 1)
-						memcpy(p, &tmp[1], *last_trans - 1);
+					if (*last_trans > 1) {
+						*last_trans -= 1;
+						memcpy(p, &tmp[1], *last_trans);
+					}
 				else {
 					printf("Unexpected report %i err=%i, cnt=%i, last_trans=%i, %02x %02x %02x %02x\n",
 						tmp[0], err, cnt, *last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
@@ -663,7 +665,6 @@ static int read_memory(struct libusb_device_handle *h, struct usb_id *p_id, unsi
 	int err;
 	int rem;
 	unsigned char tmp[64];
-	unsigned char *p;
 	read_reg_command[2] = (unsigned char)(addr >> 24);
 	read_reg_command[3] = (unsigned char)(addr >> 16);
 	read_reg_command[4] = (unsigned char)(addr >> 8);
@@ -683,30 +684,33 @@ static int read_memory(struct libusb_device_handle *h, struct usb_id *p_id, unsi
 		}
 		retry++;
 	}
-	if (p_id->mode != MODE_HID) {
-		err = transfer(h, 3, tmp, 4, &last_trans, p_id);
-		if (err) {
-			printf("r3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-			return err;
-		}
+	err = transfer(h, 3, tmp, 4, &last_trans, p_id);
+	if (err) {
+		printf("r3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+		return err;
 	}
 	rem = cnt;
-	p = tmp;
 	while (rem) {
-		err = transfer(h, 3, p, rem, &last_trans, p_id);
+		tmp[0] = tmp[1] = tmp[2] = tmp[3] = 0;
+		err = transfer(h, 4, tmp, 64, &last_trans, p_id);
 		if (err) {
-			printf("r3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+			printf("r4 in err=%i, last_trans=%i  %02x %02x %02x %02x cnt=%d rem=%d\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3], cnt, rem);
 			break;
 		}
-		p += last_trans;
+		if ((last_trans > rem) || (last_trans > 64)) {
+			if ((last_trans == 64) && (cnt == rem)) {
+				/* Last transfer is expected to be too large for HID */
+			} else {
+				printf("err: %02x %02x %02x %02x cnt=%d rem=%d last_trans=%i\n", tmp[0], tmp[1], tmp[2], tmp[3], cnt, rem, last_trans);
+			}
+			last_trans = rem;
+			if (last_trans > 64)
+				last_trans = 64;
+		}
+		memcpy(dest, tmp, last_trans);
+		dest += last_trans;
 		rem -= last_trans;
 	}
-	if (p_id->mode == MODE_HID) {
-		err = transfer(h, 4, tmp, sizeof(tmp), &last_trans, p_id);
-		if (err)
-			printf("r4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-	}
-	memcpy(dest, tmp, cnt);
 	return err;
 }
 
