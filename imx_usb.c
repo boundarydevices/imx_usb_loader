@@ -743,16 +743,20 @@ static int write_memory(struct libusb_device_handle *h, struct usb_id *p_id, uns
 	}
 	memset(tmp, 0, sizeof(tmp));
 	err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
+	if (0) printf("err=%i, last_trans=%i  %02x %02x %02x %02x  %02x %02x %02x %02x\n",
+			err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3],
+			tmp[4], tmp[5], tmp[6], tmp[7]);
 	if (err) {
 		printf("w3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
 		printf("addr=0x%08x, val=0x%08x\n", addr, val);
 	}
-	if (p_id->mode == MODE_HID) {
-		memset(tmp, 0, sizeof(tmp));
-		err = transfer(h, 4, tmp, sizeof(tmp), &last_trans, p_id);
-		if (err)
-			printf("w4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-	}
+	memset(tmp, 0, sizeof(tmp));
+	err = transfer(h, 4, tmp, sizeof(tmp), &last_trans, p_id);
+	if (0) printf("err=%i, last_trans=%i  %02x %02x %02x %02x  %02x %02x %02x %02x\n",
+			err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3],
+			tmp[4], tmp[5], tmp[6], tmp[7]);
+	if (err)
+		printf("w4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
 	return err;
 }
 
