@@ -3,7 +3,10 @@
  *
  * Program to download and execute an image over the USB boot protocol
  * on i.MX series processors.
- *
+ * 
+ * Low-level SCSI and USB Mass Storage code borrowed from:
+ *   http://git.libusb.org/?p=libusb-pbatard.git;a=blob;f=examples/xusb.c
+ * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -28,9 +31,110 @@
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdarg.h>
+#include <libgen.h>
 
+//#define DEBUG
 
 #include <libusb.h>
+
+#define RETRY_MAX                     5
+#define REQUEST_SENSE_LENGTH          0x12
+
+// Section 5.1: Command Block Wrapper (CBW)
+struct command_block_wrapper {
+	uint8_t dCBWSignature[4];
+	uint32_t dCBWTag;
+	uint32_t dCBWDataTransferLength;
+	uint8_t bmCBWFlags;
+	uint8_t bCBWLUN;
+	uint8_t bCBWCBLength;
+	uint8_t CBWCB[16];
+};
+
+// Section 5.2: Command Status Wrapper (CSW)
+struct command_status_wrapper {
+	uint8_t dCSWSignature[4];
+	uint32_t dCSWTag;
+	uint32_t dCSWDataResidue;
+	uint8_t bCSWStatus;
+};
+
+static uint8_t cdb_length[256] = {
+//	 0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F
+	06,06,06,06,06,06,06,06,06,06,06,06,06,06,06,06,  //  0
+	06,06,06,06,06,06,06,06,06,06,06,06,06,06,06,06,  //  1
+	10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,  //  2
+	10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,  //  3
+	10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,  //  4
+	10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,  //  5
+	00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,  //  6
+	00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,  //  7
+	16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,  //  8
+	16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,  //  9
+	12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,  //  A
+	12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,  //  B
+	00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,  //  C
+	00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,  //  D
+	00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,  //  E
+	16,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,  //  F
+};
+
+#define UTP_FLAG_COMMAND		0x00000001
+#define UTP_FLAG_DATA			0x00000002
+#define UTP_FLAG_STATUS			0x00000004    //indicate an error happens
+#define UTP_FLAG_REPORT_BUSY	0x10000000
+
+#define UTP_MAX_LEN 0x10000
+
+#define GADGET_VID 0x066f
+#define GADGET_PID 0x37ff
+#define GADGET_EP_IN   0x81
+#define GADGET_EP_OUT  0x01
+
+#pragma pack(1)
+/* the structure of utp message which is mapped to 16-byte SCSI CBW's CDB */
+struct utp_msg {
+	uint8_t  f0;
+	uint8_t  utp_msg_type;
+	uint32_t utp_msg_tag;
+	union {
+		struct {
+			uint32_t param_lsb;
+			uint32_t param_msb;
+		};
+		uint64_t param;
+	};
+};
+
+/* the structure of utp response which is mapped to 16-byte SCSI 
+ * fixed format sense data */
+struct utp_resp {
+	uint8_t  response_code;
+	uint8_t  obsolete1;
+	uint8_t sense_key;
+	uint32_t utp_reply_info_lsb;
+	uint8_t additional_sense_length1;
+	uint32_t utp_reply_info_msb;
+	uint8_t additional_sense_code1;
+	uint8_t utp_reply_code; 	
+	uint8_t pad[4];
+};
+
+enum utp_msg_type {
+	UTP_POLL = 0,
+	UTP_EXEC,
+	UTP_GET,
+	UTP_PUT,
+};
+
+enum utp_reply_code {
+	UTP_PASS = 0,
+	UTP_EXIT,
+	UTP_BUSY,
+	UTP_SIZE,
+};
+#pragma pack()
 
 #define get_min(a, b) (((a) < (b)) ? (a) : (b))
 
@@ -41,6 +145,226 @@ struct mach_id {
 	unsigned short pid;
 	unsigned char file_name[256];
 };
+
+inline static int perr(char const *format, ...)
+{
+	va_list args;
+	int r;
+
+	va_start (args, format);
+	r = vfprintf(stderr, format, args);
+	va_end(args);
+
+	return r;
+}
+
+int send_mass_storage_command(libusb_device_handle *handle, uint8_t endpoint, uint8_t lun,
+	uint8_t *cdb, uint8_t direction, int data_length, uint32_t *ret_tag)
+{
+	static uint32_t tag = 1;
+	uint8_t cdb_len;
+	int i, r, size;
+	struct command_block_wrapper cbw;
+
+	if (cdb == NULL) {
+		return -1;
+	}
+
+	if (endpoint & LIBUSB_ENDPOINT_IN) {
+		perr("send_mass_storage_command: cannot send command on IN endpoint\n");
+		return -1;
+	}
+
+	cdb_len = cdb_length[cdb[0]];
+	if ((cdb_len == 0) || (cdb_len > sizeof(cbw.CBWCB))) {
+		perr("send_mass_storage_command: don't know how to handle this command (%02X, length %d)\n",
+			cdb[0], cdb_len);
+		return -1;
+	}
+
+	memset(&cbw, 0, sizeof(cbw));
+	cbw.dCBWSignature[0] = 'U';
+	cbw.dCBWSignature[1] = 'S';
+	cbw.dCBWSignature[2] = 'B';
+	cbw.dCBWSignature[3] = 'C';
+	*ret_tag = tag;
+	cbw.dCBWTag = tag++;
+	cbw.dCBWDataTransferLength = data_length;
+	cbw.bmCBWFlags = direction;
+	cbw.bCBWLUN = lun;
+	// Subclass is 1 or 6 => cdb_len
+	cbw.bCBWCBLength = cdb_len;
+	memcpy(cbw.CBWCB, cdb, cdb_len);
+
+	i = 0;
+	do {
+		// The transfer length must always be exactly 31 bytes.
+		r = libusb_bulk_transfer(handle, endpoint, (unsigned char*)&cbw, 31, &size, 1000);
+		if (r == LIBUSB_ERROR_PIPE) {
+			libusb_clear_halt(handle, endpoint);
+		}
+		i++;
+	} while ((r == LIBUSB_ERROR_PIPE) && (i<RETRY_MAX));
+	if (r != LIBUSB_SUCCESS) {
+		perr("   send_mass_storage_command: %s\n", libusb_error_name(r));
+		return -1;
+	}
+
+	return 0;
+}
+
+int get_mass_storage_status(libusb_device_handle *handle, uint8_t endpoint, uint32_t expected_tag)
+{
+	int i, r, size;
+	struct command_status_wrapper csw;
+
+	// The device is allowed to STALL this transfer. If it does, you have to
+	// clear the stall and try again.
+	i = 0;
+	do {
+		r = libusb_bulk_transfer(handle, endpoint, (unsigned char*)&csw, 13, &size, 1000);
+		if (r == LIBUSB_ERROR_PIPE) {
+			libusb_clear_halt(handle, endpoint);
+		}
+		i++;
+	} while ((r == LIBUSB_ERROR_PIPE) && (i<RETRY_MAX));
+	if (r != LIBUSB_SUCCESS) {
+		perr("   get_mass_storage_status: %s\n", libusb_error_name(r));
+		return -1;
+	}
+	if (size != 13) {
+		perr("   get_mass_storage_status: received %d bytes (expected 13)\n", size);
+		return -1;
+	}
+	if (csw.dCSWTag != expected_tag) {
+		perr("   get_mass_storage_status: mismatched tags (expected %08X, received %08X)\n",
+			expected_tag, csw.dCSWTag);
+		return -1;
+	}
+	// For this test, we ignore the dCSWSignature check for validity...
+	//printf("   Mass Storage Status: %02X (%s)\n", csw.bCSWStatus, csw.bCSWStatus?"FAILED":"Success");
+	if (csw.dCSWTag != expected_tag)
+		return -1;
+	if (csw.bCSWStatus) {
+		// REQUEST SENSE is appropriate only if bCSWStatus is 1, meaning that the
+		// command failed somehow.  Larger values (2 in particular) mean that
+		// the command couldn't be understood.
+		if (csw.bCSWStatus == 1)
+			return -2;	// request Get Sense
+		else
+			return -1;
+	}
+
+	// In theory we also should check dCSWDataResidue.  But lots of devices
+	// set it wrongly.
+	return 0;
+}
+
+void get_sense(libusb_device_handle *handle, uint8_t endpoint_in, uint8_t endpoint_out, uint8_t *data)
+{
+	uint8_t cdb[16];	// SCSI Command Descriptor Block
+	uint8_t sense[18];
+	uint32_t expected_tag;
+	int size;
+
+	// Request Sense
+	memset(sense, 0, sizeof(sense));
+	memset(cdb, 0, sizeof(cdb));
+	cdb[0] = 0x03;	// Request Sense
+	cdb[4] = REQUEST_SENSE_LENGTH;
+
+	send_mass_storage_command(handle, endpoint_out, 0, cdb, LIBUSB_ENDPOINT_IN, REQUEST_SENSE_LENGTH, &expected_tag);
+	libusb_bulk_transfer(handle, endpoint_in, (unsigned char*)&sense, REQUEST_SENSE_LENGTH, &size, 1000);
+
+	if ((sense[0] != 0x70) && (sense[0] != 0x71)) {
+		perr("   ERROR No sense data\n");
+	}
+	
+	// Strictly speaking, the get_mass_storage_status() call should come
+	// before these perr() lines.  If the status is nonzero then we must
+	// assume there's no data in the buffer.  For xusb it doesn't matter.
+	get_mass_storage_status(handle, endpoint_in, expected_tag);
+	
+	if (data)
+	{
+		memcpy(data, sense, REQUEST_SENSE_LENGTH);
+	}
+}
+
+int dump_utp_resp(struct utp_resp *utp_rsp)
+{
+#ifdef DEBUG
+	printf("UTP Extended Reply Info: %d\n",be32toh(utp_rsp->utp_reply_info_lsb));
+	printf("UTP Extended Reply Code: ");
+	switch (utp_rsp->utp_reply_code) {
+		case UTP_PASS:
+			printf("PASS");
+			break;
+		case UTP_EXIT:
+			printf("EXIT");
+			break;
+		case UTP_BUSY:
+			printf("BUSY");
+			break;
+		case UTP_SIZE:
+			printf("SIZE");
+			break;
+		default:
+			printf("Unknown!\n");
+			break;
+	}
+	printf("\n");
+#endif
+}
+
+int send_utp_command(
+	libusb_device_handle *handle, uint8_t endpoint_in, uint8_t endpoint_out,
+	enum utp_msg_type msg_type, uint64_t param, int block_size, char *buffer
+)
+{
+	struct utp_msg utp_cmd;
+	struct utp_resp utp_rsp;
+	static uint32_t utp_tag = 0;
+	uint32_t expected_tag;
+	int err;
+	int lun = 0;
+	int size;
+	int poll;
+	int msec_sleep = 8;
+	int ret = -1;
+
+	utp_cmd.f0 = 0xF0;
+	do {
+		utp_tag++; poll = 0;
+		utp_cmd.utp_msg_type = msg_type;
+		utp_cmd.utp_msg_tag = htobe32(utp_tag);
+		utp_cmd.param = htobe64(param);
+		err = send_mass_storage_command(handle, endpoint_out, lun, (uint8_t *)&utp_cmd, LIBUSB_ENDPOINT_IN, block_size, &expected_tag);
+		if (block_size > 0) {
+			libusb_bulk_transfer(handle, endpoint_out, buffer, block_size, &size, 5000);
+		}
+		err = get_mass_storage_status(handle, endpoint_in, expected_tag);
+		if (err == -2) {
+			get_sense(handle, endpoint_in, endpoint_out, (uint8_t *)&utp_rsp);
+			dump_utp_resp(&utp_rsp);
+			if (utp_rsp.utp_reply_code == UTP_BUSY) {
+				msg_type = UTP_POLL;
+				param = 0;
+				block_size = 0;
+				poll = 1;
+				/* Sleep with an exponential backoff */
+				usleep(msec_sleep*1000); msec_sleep *= 2;
+			}
+			ret = utp_rsp.utp_reply_code;
+		} else if (err == 0) {
+			ret = UTP_PASS;
+		} else {
+			printf("Unknown UTP status (%d)!\n", err);
+		}
+	} while (poll);
+
+	return(ret);
+}
 
 static void print_devs(libusb_device **devs)
 {
@@ -213,6 +537,7 @@ struct usb_work {
 	struct usb_work *next;
 	struct mem_work *mem;
 	unsigned char filename[256];
+	unsigned char target_filename[256];
 	unsigned char dcd;
 	unsigned char clear_dcd;	//means clear dcd_ptr
 	unsigned char plug;
@@ -358,6 +683,13 @@ void parse_file_work(struct usb_work *curr, struct mach_id *mach, char *p)
 			}
 			p = skip(p,',');
 //			printf("jump\n");
+		}
+		if (strncmp(p, "save", 4) == 0) {
+			p += 4;
+			p = skip(p,' ');
+			p = move_string(curr->target_filename, p, sizeof(curr->target_filename) - 1);
+			p = skip(p,',');
+//			printf("save\n");
 		}
 		if (q == p) {
 			printf("%s: syntax error: %s {%s}\n", mach->file_name, p, start);
@@ -1359,140 +1691,160 @@ int DoIRomDownload(struct libusb_device_handle *h, struct usb_id *p_id, struct u
 		ret = -2;
 		goto cleanup;
 	}
-	fsize = get_file_size(xfile);
-	cnt = fread(buf, 1 , BUF_SIZE, xfile);
 
-	if (cnt < 0x20) {
-		printf("\r\nerror, file: %s is too small\r\n", curr->filename);
-		ret = -2;
-		goto cleanup;
-	}
-	max_length = fsize;
-	if (curr->dcd || curr->clear_dcd || curr->plug || (curr->jump_mode >= J_HEADER)) {
-		ret = process_header(h, p_id, curr, buf, cnt,
-				&dladdr, &max_length, &plugin, &header_addr);
-		if (ret < 0)
-			goto cleanup;
-		header_offset = ret;
-		if ((!curr->jump_mode) && (!curr->plug)) {
-			/*  nothing else requested */
-			ret = 0;
-			goto cleanup;
-		}
-	} else {
-		dladdr = curr->load_addr;
-		printf("load_addr=%x\n", curr->load_addr);
-		header_addr = dladdr;
-		header_offset = 0;
-	}
-	if (plugin && (!curr->plug)) {
-		printf("Only plugin header found\n");
-		ret = -1;
-		goto cleanup;
-	}
-	if (!dladdr) {
-		printf("\nunknown load address\r\n");
-		ret = -3;
-		goto cleanup;
-	}
-	file_base = header_addr - header_offset;
-	type = (curr->plug || curr->jump_mode) ? FT_APP : FT_LOAD_ONLY;
-	if (p_id->mode == MODE_BULK) if (type == FT_APP) {
-		/* No jump command, dladdr should point to header */
-		dladdr = header_addr;
-	}
-	if (file_base > dladdr) {
-		max_length -= (file_base - dladdr);
-		dladdr = file_base;
-	}
-	skip = dladdr - file_base;
-	if (skip > cnt) {
-		if (skip > fsize) {
-			printf("skip(0x%08x) > fsize(0x%08x) file_base=0x%08x, header_offset=0x%x\n", skip, fsize, file_base, header_offset);
-			ret = -4;
-			goto cleanup;
-		}
-		fseek(xfile, skip, SEEK_SET);
-		cnt -= skip;
-		fsize -= skip;
-		skip = 0;
+	if ((p_id->vid == GADGET_VID) && ( p_id->pid == GADGET_PID)) {
+		sprintf(buf, "%s", "send");
+		ret = send_utp_command(h, GADGET_EP_IN, GADGET_EP_OUT, UTP_EXEC, 1, strlen(buf), buf);
 		cnt = fread(buf, 1 , BUF_SIZE, xfile);
-	}
-	p = &buf[skip];
-	cnt -= skip;
-	fsize -= skip;
-	if (fsize > max_length)
-		fsize = max_length;
-	if (verify) {
-		/*
-		 * we need to save header for verification
-		 * because some of the file is changed
-		 * before download
-		 */
-		verify_buffer = malloc(cnt);
-		verify_cnt = cnt;
-		if (!verify_buffer) {
-			printf("\r\nerror, out of memory\r\n");
+		while ((cnt > 0) || !feof(xfile)) {
+			if (cnt > 0) {
+				send_utp_command(h, GADGET_EP_IN, GADGET_EP_OUT, UTP_PUT, 1, cnt, buf);
+			}
+			cnt = fread(buf, 1 , BUF_SIZE, xfile);
+		};
+		if (curr->target_filename[0] == 0) {
+			snprintf(curr->target_filename,sizeof(curr->target_filename),
+				"/tmp/%s",basename(curr->filename));
+		}
+		sprintf(buf,"save %s", curr->target_filename);
+		ret = send_utp_command(h, GADGET_EP_IN, GADGET_EP_OUT, UTP_EXEC, 1, strlen(buf), buf);
+		ret = 0;
+	} else {
+		fsize = get_file_size(xfile);
+		cnt = fread(buf, 1 , BUF_SIZE, xfile);
+
+		if (cnt < 0x20) {
+			printf("\r\nerror, file: %s is too small\r\n", curr->filename);
 			ret = -2;
 			goto cleanup;
 		}
-		memcpy(verify_buffer, p, cnt);
-		if ((type == FT_APP) && (p_id->mode != MODE_HID)) {
-			type = FT_LOAD_ONLY;
-			verify = 2;
-		}
-	}
-	printf("\nloading binary file(%s) to %08x, skip=%x, fsize=%x type=%x\r\n", curr->filename, dladdr, skip, fsize, type);
-	ret = load_file(h, p_id, p, cnt, buf, BUF_SIZE,
-			dladdr, fsize, type, xfile);
-	if (ret < 0)
-		goto cleanup;
-	transferSize = ret;
-
-	if (verify) {
-		ret = verify_memory(h, p_id, xfile, skip, dladdr, fsize, verify_buffer, verify_cnt);
-		if (ret < 0)
-			goto cleanup;
-		if (verify == 2) {
-			if (verify_cnt > 64)
-				verify_cnt = 64;
-			ret = load_file(h, p_id, verify_buffer, verify_cnt,
-					buf, BUF_SIZE, dladdr, verify_cnt,
-					FT_APP, xfile);
+		max_length = fsize;
+		if (curr->dcd || curr->clear_dcd || curr->plug || (curr->jump_mode >= J_HEADER)) {
+			ret = process_header(h, p_id, curr, buf, cnt,
+					&dladdr, &max_length, &plugin, &header_addr);
 			if (ret < 0)
 				goto cleanup;
-
-		}
-	}
-	if (p_id->mode == MODE_HID) if (type == FT_APP) {
-		printf("jumping to 0x%08x\n", header_addr);
-		jump_command[2] = (unsigned char)(header_addr >> 24);
-		jump_command[3] = (unsigned char)(header_addr >> 16);
-		jump_command[4] = (unsigned char)(header_addr >> 8);
-		jump_command[5] = (unsigned char)(header_addr);
-		//Any command will initiate jump for mx51, jump address is ignored by mx51
-		retry = 0;
-		for (;;) {
-			err = transfer(h, 1, jump_command, 16, &last_trans, p_id);
-			if (!err)
-				break;
-			printf("jump_command err=%i, last_trans=%i\n", err, last_trans);
-			if (retry > 5) {
-				return -4;
+			header_offset = ret;
+			if ((!curr->jump_mode) && (!curr->plug)) {
+				/*  nothing else requested */
+				ret = 0;
+				goto cleanup;
 			}
-			retry++;
+		} else {
+			dladdr = curr->load_addr;
+			printf("load_addr=%x\n", curr->load_addr);
+			header_addr = dladdr;
+			header_offset = 0;
 		}
-		memset(tmp, 0, sizeof(tmp));
-		err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
-		if (err)
-			printf("j3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-		if (0) if (p_id->mode == MODE_HID) {
+		if (plugin && (!curr->plug)) {
+			printf("Only plugin header found\n");
+			ret = -1;
+			goto cleanup;
+		}
+		if (!dladdr) {
+			printf("\nunknown load address\r\n");
+			ret = -3;
+			goto cleanup;
+		}
+		file_base = header_addr - header_offset;
+		type = (curr->plug || curr->jump_mode) ? FT_APP : FT_LOAD_ONLY;
+		if (p_id->mode == MODE_BULK) if (type == FT_APP) {
+			/* No jump command, dladdr should point to header */
+			dladdr = header_addr;
+		}
+		if (file_base > dladdr) {
+			max_length -= (file_base - dladdr);
+			dladdr = file_base;
+		}
+		skip = dladdr - file_base;
+		if (skip > cnt) {
+			if (skip > fsize) {
+				printf("skip(0x%08x) > fsize(0x%08x) file_base=0x%08x, header_offset=0x%x\n", skip, fsize, file_base, header_offset);
+				ret = -4;
+				goto cleanup;
+			}
+			fseek(xfile, skip, SEEK_SET);
+			cnt -= skip;
+			fsize -= skip;
+			skip = 0;
+			cnt = fread(buf, 1 , BUF_SIZE, xfile);
+		}
+		p = &buf[skip];
+		cnt -= skip;
+		fsize -= skip;
+		if (fsize > max_length)
+			fsize = max_length;
+		if (verify) {
+			/*
+			 * we need to save header for verification
+			 * because some of the file is changed
+			 * before download
+			 */
+			verify_buffer = malloc(cnt);
+			verify_cnt = cnt;
+			if (!verify_buffer) {
+				printf("\r\nerror, out of memory\r\n");
+				ret = -2;
+				goto cleanup;
+			}
+			memcpy(verify_buffer, p, cnt);
+			if ((type == FT_APP) && (p_id->mode != MODE_HID)) {
+				type = FT_LOAD_ONLY;
+				verify = 2;
+			}
+		}
+		printf("\nloading binary file(%s) to %08x, skip=%x, fsize=%x type=%x\r\n", curr->filename, dladdr, skip, fsize, type);
+		ret = load_file(h, p_id, p, cnt, buf, BUF_SIZE,
+				dladdr, fsize, type, xfile);
+		if (ret < 0)
+			goto cleanup;
+		transferSize = ret;
+	
+		if (verify) {
+			ret = verify_memory(h, p_id, xfile, skip, dladdr, fsize, verify_buffer, verify_cnt);
+			if (ret < 0)
+				goto cleanup;
+			if (verify == 2) {
+				if (verify_cnt > 64)
+					verify_cnt = 64;
+				ret = load_file(h, p_id, verify_buffer, verify_cnt,
+						buf, BUF_SIZE, dladdr, verify_cnt,
+						FT_APP, xfile);
+				if (ret < 0)
+					goto cleanup;
+	
+			}
+		}
+		if (p_id->mode == MODE_HID) if (type == FT_APP) {
+			printf("jumping to 0x%08x\n", header_addr);
+			jump_command[2] = (unsigned char)(header_addr >> 24);
+			jump_command[3] = (unsigned char)(header_addr >> 16);
+			jump_command[4] = (unsigned char)(header_addr >> 8);
+			jump_command[5] = (unsigned char)(header_addr);
+			//Any command will initiate jump for mx51, jump address is ignored by mx51
+			retry = 0;
+			for (;;) {
+				err = transfer(h, 1, jump_command, 16, &last_trans, p_id);
+				if (!err)
+					break;
+				printf("jump_command err=%i, last_trans=%i\n", err, last_trans);
+				if (retry > 5) {
+					return -4;
+				}
+				retry++;
+			}
 			memset(tmp, 0, sizeof(tmp));
-			err = transfer(h, 4, tmp, sizeof(tmp), &last_trans, p_id);
-			printf("j4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+			err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
+			if (err)
+				printf("j3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+			if (0) if (p_id->mode == MODE_HID) {
+				memset(tmp, 0, sizeof(tmp));
+				err = transfer(h, 4, tmp, sizeof(tmp), &last_trans, p_id);
+				printf("j4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+			}
 		}
+		ret = (fsize == transferSize) ? 0 : -16;
 	}
-	ret = (fsize == transferSize) ? 0 : -16;
 cleanup:
 	fclose(xfile);
 	free(verify_buffer);
@@ -1506,23 +1858,33 @@ int do_status(libusb_device_handle *h, struct usb_id *p_id)
 	unsigned char tmp[64];
 	int retry = 0;
 	int err;
-	for (;;) {
-		err = transfer(h, 1, (unsigned char*)statusCommand, 16, &last_trans, p_id);
-		printf("report 1, wrote %i bytes, err=%i\n", last_trans, err);
-		memset(tmp, 0, sizeof(tmp));
-		err = transfer(h, 3, tmp, 64, &last_trans, p_id);
-		printf("report 3, read %i bytes, err=%i\n", last_trans, err);
-		printf("read=%02x %02x %02x %02x\n", tmp[0], tmp[1], tmp[2], tmp[3]);
-		if (!err)
-			break;
-		retry++;
-		if (retry > 5)
-			break;
-	}
-	if (p_id->mode == MODE_HID) {
-		err = transfer(h, 4, tmp, sizeof(tmp), &last_trans, p_id);
-		if (err)
-			printf("4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+	
+	if ((p_id->vid == GADGET_VID) && ( p_id->pid == GADGET_PID)) {
+		err = send_utp_command(h, GADGET_EP_IN, GADGET_EP_OUT, UTP_POLL, 1, 0, NULL);
+		if (err > 0) {
+			err = 0;
+		} else {
+			err = -1;
+		}
+	} else {
+		for (;;) {
+			err = transfer(h, 1, (unsigned char*)statusCommand, 16, &last_trans, p_id);
+			printf("report 1, wrote %i bytes, err=%i\n", last_trans, err);
+			memset(tmp, 0, sizeof(tmp));
+			err = transfer(h, 3, tmp, 64, &last_trans, p_id);
+			printf("report 3, read %i bytes, err=%i\n", last_trans, err);
+			printf("read=%02x %02x %02x %02x\n", tmp[0], tmp[1], tmp[2], tmp[3]);
+			if (!err)
+				break;
+			retry++;
+			if (retry > 5)
+				break;
+		}
+		if (p_id->mode == MODE_HID) {
+			err = transfer(h, 4, tmp, sizeof(tmp), &last_trans, p_id);
+			if (err)
+				printf("4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+		}
 	}
 	return err;
 }
