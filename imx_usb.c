@@ -1155,7 +1155,7 @@ int process_header(struct libusb_device_handle *h, struct usb_id *p_id,
 		unsigned *p_header_addr)
 {
 	int ret;
-	unsigned header_max = 0x800;
+	unsigned header_max = 0x1400;
 	unsigned header_inc = 0x400;
 	unsigned header_offset = 0;
 	int header_cnt = 0;
