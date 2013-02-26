@@ -91,10 +91,10 @@ static void print_devs(libusb_device **devs)
 	{0x066f, 0x37ff, "linux gadget", 512, MODE_BULK, HDR_NONE},
 };
 */
-int get_val(char** pp, int base)
+int get_val(const char** pp, int base)
 {
 	int val = 0;
-	char *p = *pp;
+	const char *p = *pp;
 	while (*p==' ') p++;
 	if (*p=='0') {
 		p++;
@@ -127,7 +127,7 @@ int get_val(char** pp, int base)
 	return val;
 }
 
-unsigned char *move_string(unsigned char *dest, unsigned char *src, unsigned cnt)
+const unsigned char *move_string(unsigned char *dest, const unsigned char *src, unsigned cnt)
 {
 	int i = 0;
 	while (i < cnt) {
@@ -149,7 +149,7 @@ static struct mach_id *parse_imx_conf(char *filename)
 	struct mach_id *head = NULL;
 	struct mach_id *tail = NULL;
 	struct mach_id *curr = NULL;
-	char *p;
+	const char *p;
 	FILE* xfile = fopen(filename, "rb" );
 	if (!xfile) {
 		printf("Could not open file: %s\n", filename);
@@ -222,6 +222,7 @@ struct usb_work {
 	unsigned char jump_mode;
 	unsigned load_addr;
 	unsigned jump_addr;
+	unsigned load_size;
 };
 
 struct usb_id {
@@ -240,7 +241,7 @@ struct usb_id {
 	struct usb_work *work;
 };
 
-char *skip(char *p, char c)
+const char *skip(const char *p, char c)
 {
 	while (*p==' ') p++;
 	if (*p == c) {
@@ -250,7 +251,7 @@ char *skip(char *p, char c)
 	return p;
 }
 
-int end_of_line(char *p)
+int end_of_line(const char *p)
 {
 	while (*p == ' ') p++;
 	if ((!p[0]) || (*p == '#') || (*p == '\n') || (*p == '\r'))
@@ -259,13 +260,13 @@ int end_of_line(char *p)
 }
 
 
-void parse_mem_work(struct usb_work *curr, struct mach_id *mach, char *p)
+void parse_mem_work(struct usb_work *curr, struct mach_id *mach, const char *p)
 {
 	struct mem_work *wp;
 	struct mem_work **link;
 	struct mem_work w;
 	int i;
-	char *start = p;
+	const char *start = p;
 
 	p = skip(p,':');
 	memset(&w, 0, sizeof(w));
@@ -311,14 +312,14 @@ void parse_mem_work(struct usb_work *curr, struct mach_id *mach, char *p)
 	*link = wp;
 }
 
-void parse_file_work(struct usb_work *curr, struct mach_id *mach, char *p)
+void parse_file_work(struct usb_work *curr, struct mach_id *mach, const char *p)
 {
-	char *start = p;
+	const char *start = p;
 
 	p = move_string(curr->filename, p, sizeof(curr->filename) - 1);
 	p = skip(p,':');
 	for (;;) {
-		char *q = p;
+		const char *q = p;
 		if ((!*p) || (*p == '#')  || (*p == '\n') || (*p == 0x0d))
 			break;
 		if (strncmp(p, "dcd", 3) == 0) {
@@ -371,7 +372,7 @@ void parse_file_work(struct usb_work *curr, struct mach_id *mach, char *p)
  *hid,1024,0x10000000,1G,0x00907000,0x31000
  *
  */
-void parse_transfer_type(struct usb_id *usb, struct mach_id *mach, char *p)
+void parse_transfer_type(struct usb_id *usb, struct mach_id *mach, const char *p)
 {
 	int i;
 
@@ -419,7 +420,7 @@ static struct usb_id *parse_conf(struct mach_id *mach)
 {
 	char line[512];
 	FILE *xfile;
-	char *p;
+	const char *p;
 	struct usb_work *tail = NULL;
 	struct usb_work *curr = NULL;
 	struct usb_id *usb = (struct usb_id *)malloc(sizeof(struct usb_id));
@@ -907,23 +908,70 @@ static int write_dcd_table_old(struct libusb_device_handle *h, struct usb_id *p_
 	return err;
 }
 
-void dump_long(unsigned char *src, unsigned cnt, unsigned addr)
+void diff_long(unsigned char *src1, unsigned char *src2, unsigned cnt, unsigned skip)
+{
+	unsigned char buf[8*9 + 2];
+	unsigned *s1 = (unsigned *)src1;
+	unsigned *s2 = (unsigned *)src2;
+	unsigned i, j;
+	while (cnt >= 4) {
+		char *p = buf;
+		unsigned max = get_min(cnt >> 2, 8);
+		for (i = 0; i < (skip >> 2); i++) {
+			for (j=0; j < 9; j++)
+				*p++ = ' ';
+		}
+		for (; i < max; i++) {
+			unsigned s1v = *s1++;
+			unsigned diff = s1v ^ *s2++;
+			unsigned c;
+			*p++ = ' ';
+			if (i == 4)
+				*p++ = ' ';
+			for (j = 0; j < 8; j++) {
+				unsigned changed = diff & 0xf0000000;
+				c = ' ';
+				if (changed) {
+					if ((s1v & changed) == 0)
+						c = '^';
+					else if ((s1v & changed) == changed)
+						c = 'v';
+					else
+						c = '-';
+				}
+				*p++ = c;
+				diff <<= 4;
+				s1v <<= 4;
+			}
+		}
+		*p = 0;
+		printf("         %s\n", buf);
+		cnt -= max << 2;
+	}
+}
+
+void dump_long(unsigned char *src, unsigned cnt, unsigned addr, unsigned skip)
 {
 	unsigned *p = (unsigned *)src;
-	while (cnt >= 32) {
-		printf("%08x: %08x %08x %08x %08x  %08x %08x %08x %08x\n", addr, p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]);
-		p += 8;
-		cnt -= 32;
-		addr += 32;
-	}
-	if (cnt) {
+	int i = skip >> 2;
+
+	while (cnt >= 4) {
 		printf("%08x:", addr);
+		while (skip >= 4) {
+			printf("         ");
+			skip -= 4;
+		}
 		while (cnt >= 4) {
-			printf(" %08x", p[0]);
+			printf((i==4) ? "  %08x":" %08x", p[0]);
 			p++;
 			cnt -= 4;
+			addr += 4;
+			i++;
+			if (i==8)
+				break;
 		}
 		printf("\n");
+		i = 0;
 	}
 }
 
@@ -999,11 +1047,13 @@ int verify_memory(struct libusb_device_handle *h, struct usb_id *p_id,
 				mismatch++;
 
 				while (request) {
-					unsigned req = get_min(request, 32);
+					unsigned skip = addr & 0x1f;
+					unsigned max = 0x20 - skip;
+					unsigned req = get_min(request, max);
 					if (memcmp(p, m, req)) {
-						dump_long(p, req, offset);
-						dump_long(m, req, addr);
-						printf("\n");
+						dump_long(p, req, offset, skip);
+						dump_long(m, req, addr, skip);
+						diff_long(p, m, req, skip);
 					}
 					p += req;
 					m+= req;
@@ -1347,7 +1397,9 @@ int DoIRomDownload(struct libusb_device_handle *h, struct usb_id *p_id, struct u
 	unsigned transferSize=0;
 	int retry = 0;
 
-	printf("%s\n", curr->filename);
+	printf("%s %x %x %x %x %x %x\n", curr->filename, curr->load_size,
+			curr->load_addr, curr->dcd, curr->clear_dcd,
+			curr->plug, curr->jump_mode);
 	xfile = fopen(curr->filename, "rb" );
 	if (!xfile) {
 		printf("\r\nerror, can not open input file: %s\r\n", curr->filename);
@@ -1360,6 +1412,8 @@ int DoIRomDownload(struct libusb_device_handle *h, struct usb_id *p_id, struct u
 		goto cleanup;
 	}
 	fsize = get_file_size(xfile);
+	if (curr->load_size && (fsize > curr->load_size))
+		fsize = curr->load_size;
 	cnt = fread(buf, 1 , BUF_SIZE, xfile);
 
 	if (cnt < 0x20) {
@@ -1556,6 +1610,8 @@ err1:
 	return NULL;
 }
 
+#define ARRAY_SIZE(w) sizeof(w)/sizeof(w[0])
+
 int main(int argc, char const *const argv[])
 {
 	struct usb_id *p_id;
@@ -1565,14 +1621,14 @@ int main(int argc, char const *const argv[])
 	int r;
 	int err;
 	int ret=1;
-	int single = 0;
 	ssize_t cnt;
 	libusb_device_handle *h = NULL;
 	int config = 0;
 	int verify = 0;
-	struct usb_work w;
+	struct usb_work w[10];
 	struct usb_work *curr;
 	int i = 1;
+	int w_index = -1;
 
 	struct mach_id *list = parse_imx_conf("imx_usb.conf");
 	if (!list)
@@ -1616,40 +1672,77 @@ int main(int argc, char const *const argv[])
 		goto out;
 	}
 	curr = p_id->work;
-	single = 0;
-	if (argc > i) {
-		if (!strcmp(argv[i], "-v")) {
-			verify = 1;
-			i++;
+	while (argc > i) {
+		const char *p = argv[i];
+		if (*p == '-') {
+			char c;
+			p++;
+			c = *p++;
+			if (c == 'v') {
+				verify = 1;
+				i++;
+				continue;
+			}
+			if (w_index < 0) {
+				printf("specify file first\n");
+				exit(1);
+			}
+			if (!*p) {
+				i++;
+				p = argv[i];
+			}
+			if (c == 's') {
+				w[w_index].load_size = get_val(&p, 10);
+				if (!w[w_index].load_addr)
+					w[w_index].load_addr = 0x10800000;
+				w[w_index].plug = 0;
+				w[w_index].jump_mode = 0;
+				i++;
+				continue;
+			}
+			if (c == 'l') {
+				w[w_index].load_addr = get_val(&p, 16);
+				w[w_index].plug = 0;
+				w[w_index].jump_mode = 0;
+				i++;
+				continue;
+			}
+			printf("Unknown option %s\n", p);
+			exit(1);
+
 		}
-	}
-	if (argc > i) {
-		memset(&w, 0, sizeof(struct usb_work));
-		w.plug = 1;
-		w.dcd = 1;
-		w.jump_mode = J_HEADER;
-		strncpy(w.filename, argv[i], sizeof(w.filename) - 1);
-		curr = &w;
-		single = 1;
+		if (w_index >= 0) {
+			w[w_index].jump_mode = 0;
+			w[w_index].next = &w[w_index + 1];
+		}
+		w_index++;
+		if (w_index > ARRAY_SIZE(w)) {
+			printf("too many files\n");
+			exit(1);
+		}
+		memset(&w[w_index], 0, sizeof(struct usb_work));
+		if (w_index == 0) {
+			w[w_index].dcd = 1;
+			w[w_index].plug = 1;
+		}
+		w[w_index].jump_mode = J_HEADER;
+		strncpy(w[w_index].filename, argv[i], sizeof(w[w_index].filename) - 1);
 		i++;
 	}
-	if (argc > i) {
-		if (!strcmp(argv[i], "-v")) {
-			verify = 1;
-			i++;
-		}
-	}
+	if (w_index >= 0)
+		curr = &w[0];
 	while (curr) {
 		if (curr->mem)
 			perform_mem_work(h, p_id, curr->mem);
 //		printf("jump_mode %x\n", curr->jump_mode);
-		if (curr->filename[0])
+		if (curr->filename[0]) {
 			err = DoIRomDownload(h, p_id, curr, verify);
+		}
 		if (err) {
 			err = do_status(h, p_id);
 			break;
 		}
-		if (!curr->next && (!curr->plug || !single))
+		if (!curr->next && (!curr->plug || (w_index != 0)))
 			break;
 		err = do_status(h, p_id);
 		printf("jump_mode %x plug=%i err=%i\n", curr->jump_mode, curr->plug, err);
@@ -1670,7 +1763,7 @@ int main(int argc, char const *const argv[])
 			if (!h)
 				goto out;
 		}
-		if (single && curr->plug) {
+		if ((w_index == 0) && curr->plug) {
 			curr->plug = 0;
 			continue;
 		}
