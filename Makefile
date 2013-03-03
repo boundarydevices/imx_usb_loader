@@ -16,7 +16,7 @@ endif
 	$(CC) -c $*.c -o $@ -Wstrict-prototypes -Wno-trigraphs -pipe -ggdb $(CFLAGS)
 
 imx_usb: imx_usb.o 
-	gcc -o $@ $@.o -lusb-1.0
+	$(CC) -o $@ $@.o -lusb-1.0
 
 clean:
 	rm -f imx_usb imx_usb.o
