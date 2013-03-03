@@ -30,7 +30,7 @@
 #include <stdlib.h>
 
 
-#include <libusb.h>
+#include <libusb-1.0/libusb.h>
 
 #define get_min(a, b) (((a) < (b)) ? (a) : (b))
 
