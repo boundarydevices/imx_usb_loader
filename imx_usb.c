@@ -146,13 +146,25 @@ static struct mach_id *parse_imx_conf(char *filename)
 	unsigned short vid;
 	unsigned short pid;
 	char line[512];
+	char conf_path[512];
 	struct mach_id *head = NULL;
 	struct mach_id *tail = NULL;
 	struct mach_id *curr = NULL;
 	const char *p;
-	FILE* xfile = fopen(filename, "rb" );
+	char *e;
+	e = getenv("_");
+	if (e) {
+		strcpy(conf_path,e);
+		e = strrchr(conf_path,'/');
+		if (e)
+			e[1] = 0;
+	} else
+		conf_path[0] = 0;
+	strcat(conf_path, filename);
+
+	FILE* xfile = fopen(conf_path, "rb" );
 	if (!xfile) {
-		printf("Could not open file: %s\n", filename);
+		printf("Could not open file: %s\n", conf_path);
 		return NULL;
 	}
 
