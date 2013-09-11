@@ -141,16 +141,12 @@ const unsigned char *move_string(unsigned char *dest, const unsigned char *src, 
 	return src;
 }
 
-static struct mach_id *parse_imx_conf(char *filename)
+static char const *conf_file_name
+	(char const *base,
+	 int argc,
+	 char const * const *argv)
 {
-	unsigned short vid;
-	unsigned short pid;
-	char line[512];
-	char conf_path[512];
-	struct mach_id *head = NULL;
-	struct mach_id *tail = NULL;
-	struct mach_id *curr = NULL;
-	const char *p;
+	static char conf_path[512];
 	char *e;
 	e = getenv("_");
 	if (e) {
@@ -158,13 +154,40 @@ static struct mach_id *parse_imx_conf(char *filename)
 		e = strrchr(conf_path,'/');
 		if (e)
 			e[1] = 0;
-	} else
-		conf_path[0] = 0;
-	strcat(conf_path, filename);
+	} else {
+		printf("No \"_\" environment variable\n");
+		printf("argc == %d, argv == %p\n", argc, argv);
+		strcpy(conf_path,argv[0]);
+		printf("base == %p:%s\n", conf_path, conf_path);
+		e = strrchr(conf_path,'/');
+		if (e) {
+			printf( "trailing slash == %p:%s\n", e, e);
+			e[1] = 0;
+			printf( "conf_path == %s\n", conf_path);
+		} else
+			printf( "no trailing slash\n");
+	}
+	strcat(conf_path, base);
+	printf("config file <%s>\n", conf_path);
+	return conf_path;
+}
 
-	FILE* xfile = fopen(conf_path, "rb" );
+static struct mach_id *parse_imx_conf
+	(char *filename,
+	 int argc,
+	 char const *const *argv)
+{
+	unsigned short vid;
+	unsigned short pid;
+	char line[512];
+	struct mach_id *head = NULL;
+	struct mach_id *tail = NULL;
+	struct mach_id *curr = NULL;
+	const char *p;
+
+	FILE* xfile = fopen(conf_file_name(filename,argc,argv), "rb" );
 	if (!xfile) {
-		printf("Could not open file: %s\n", conf_path);
+		printf("Could not open file: %s\n", filename);
 		return NULL;
 	}
 
@@ -428,7 +451,10 @@ void parse_transfer_type(struct usb_id *usb, struct mach_id *mach, const char *p
 	}
 }
 
-static struct usb_id *parse_conf(struct mach_id *mach)
+static struct usb_id *parse_conf
+	(struct mach_id *mach,
+	 int argc,
+	 char const * const *argv)
 {
 	char line[512];
 	FILE *xfile;
@@ -440,7 +466,7 @@ static struct usb_id *parse_conf(struct mach_id *mach)
 		return NULL;
 	memset(usb, 0, sizeof(struct usb_id));
 
-	xfile = fopen(mach->file_name, "rb" );
+	xfile = fopen(conf_file_name(mach->file_name,argc,argv), "rb" );
 	if (!xfile) {
 		printf("Could not open file: {%s}\n", mach->file_name);
 		free(usb);
@@ -1642,7 +1668,7 @@ int main(int argc, char const *const argv[])
 	int i = 1;
 	int w_index = -1;
 
-	struct mach_id *list = parse_imx_conf("imx_usb.conf");
+	struct mach_id *list = parse_imx_conf("imx_usb.conf",argc,argv);
 	if (!list)
 		goto out;
 	r = libusb_init(NULL);
@@ -1664,7 +1690,7 @@ int main(int argc, char const *const argv[])
 
 	if (!h)
 		goto out;
-	p_id = parse_conf(mach);
+	p_id = parse_conf(mach,argc,argv);
 	if (!p_id)
 		goto out;
 	libusb_get_configuration(h, &config);
