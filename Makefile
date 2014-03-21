@@ -17,8 +17,8 @@ endif
 %.o : %.c
 	$(CC) -c $*.c -o $@ -Wstrict-prototypes -Wno-trigraphs -pipe -ggdb $(CFLAGS)
 
-imx_usb: imx_usb.o 
-	$(CC) -o $@ $@.o $(LDFLAGS)
+imx_usb: imx_usb.o imx_sdp.o
+	$(CC) -o $@ $@.o imx_sdp.o $(LDFLAGS)
 
 install: imx_usb
 	mkdir -p ${DESTDIR}/usr/bin/
