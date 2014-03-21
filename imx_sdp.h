@@ -22,15 +22,6 @@
 #define __IMX_SDP_H__
 
 #include <libusb-1.0/libusb.h>
-
-struct mach_id;
-struct mach_id {
-	struct mach_id * next;
-	unsigned short vid;
-	unsigned short pid;
-	unsigned char file_name[256];
-};
-
 struct ram_area {
 	unsigned start;
 	unsigned size;
@@ -83,7 +74,7 @@ const unsigned char *move_string(unsigned char *dest, const unsigned char *src, 
 
 char const *conf_file_name(char const *base, int argc, char const * const *argv);
 
-struct usb_id *parse_conf(struct mach_id *mach, int argc, char const * const *argv);
+struct usb_id *parse_conf(const char *filename, int argc, char const * const *argv);
 
 int DoIRomDownload(struct libusb_device_handle *h, struct usb_id *p_id, struct usb_work *curr, int verify);
 

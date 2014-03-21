@@ -137,7 +137,7 @@ int end_of_line(const char *p)
 }
 
 
-void parse_mem_work(struct usb_work *curr, struct mach_id *mach, const char *p)
+void parse_mem_work(struct usb_work *curr, const char *filename, const char *p)
 {
 	struct mem_work *wp;
 	struct mem_work **link;
@@ -160,7 +160,7 @@ void parse_mem_work(struct usb_work *curr, struct mach_id *mach, const char *p)
 		p = skip(p,',');
 		i = MEM_TYPE_MODIFY;
 	} else {
-		printf("%s: syntax error: %s {%s}\n", mach->file_name, p, start);
+		printf("%s: syntax error: %s {%s}\n", filename, p, start);
 	}
 	w.type = i;
 	i = 0;
@@ -170,13 +170,13 @@ void parse_mem_work(struct usb_work *curr, struct mach_id *mach, const char *p)
 			break;
 		p = skip(p,',');
 		if ((*p == 0) || (*p == '#')) {
-			printf("%s: missing argment: %s {%s}\n", mach->file_name, p, start);
+			printf("%s: missing argment: %s {%s}\n", filename, p, start);
 			return;
 		}
 		i++;
 	}
 	if (!end_of_line(p)) {
-		printf("%s: syntax error: %s {%s}\n", mach->file_name, p, start);
+		printf("%s: syntax error: %s {%s}\n", filename, p, start);
 		return;
 	}
 	wp = (struct mem_work *)malloc(sizeof(struct mem_work));
@@ -189,7 +189,7 @@ void parse_mem_work(struct usb_work *curr, struct mach_id *mach, const char *p)
 	*link = wp;
 }
 
-void parse_file_work(struct usb_work *curr, struct mach_id *mach, const char *p)
+void parse_file_work(struct usb_work *curr, const char *filename, const char *p)
 {
 	const char *start = p;
 
@@ -238,7 +238,7 @@ void parse_file_work(struct usb_work *curr, struct mach_id *mach, const char *p)
 //			printf("jump\n");
 		}
 		if (q == p) {
-			printf("%s: syntax error: %s {%s}\n", mach->file_name, p, start);
+			printf("%s: syntax error: %s {%s}\n", filename, p, start);
 			break;
 		}
 	}
@@ -249,7 +249,7 @@ void parse_file_work(struct usb_work *curr, struct mach_id *mach, const char *p)
  *hid,1024,0x10000000,1G,0x00907000,0x31000
  *
  */
-void parse_transfer_type(struct usb_id *usb, struct mach_id *mach, const char *p)
+void parse_transfer_type(struct usb_id *usb, const char *filename, const char *p)
 {
 	int i;
 
@@ -262,7 +262,7 @@ void parse_transfer_type(struct usb_id *usb, struct mach_id *mach, const char *p
 		p = skip(p,',');
 		usb->mode = MODE_BULK;
 	} else {
-		printf("%s: hid/bulk expected\n", mach->file_name);
+		printf("%s: hid/bulk expected\n", filename);
 	}
 	if (strncmp(p, "old_header", 10) == 0) {
 		p += 10;
@@ -293,10 +293,7 @@ void parse_transfer_type(struct usb_id *usb, struct mach_id *mach, const char *p
 	}
 }
 
-struct usb_id *parse_conf
-	(struct mach_id *mach,
-	 int argc,
-	 char const * const *argv)
+struct usb_id *parse_conf(const char *filename, int argc, char const * const *argv)
 {
 	char line[512];
 	FILE *xfile;
@@ -308,16 +305,14 @@ struct usb_id *parse_conf
 		return NULL;
 	memset(usb, 0, sizeof(struct usb_id));
 
-	xfile = fopen(conf_file_name(mach->file_name,argc,argv), "rb" );
+	xfile = fopen(conf_file_name(filename,argc,argv), "rb" );
 	if (!xfile) {
-		printf("Could not open file: {%s}\n", mach->file_name);
+		printf("Could not open file: {%s}\n", filename);
 		free(usb);
 		return NULL;
 	}
-	printf("parse %s\n", mach->file_name);
+	printf("parse %s\n", filename);
 
-	usb->vid = mach->vid;
-	usb->pid = mach->pid;
 	while (fgets(line, sizeof(line), xfile) != NULL) {
 		p = line;
 		while (*p==' ') p++;
@@ -334,7 +329,7 @@ struct usb_id *parse_conf
 			continue;
 		}
 		if (!usb->max_transfer) {
-			parse_transfer_type(usb, mach, p);
+			parse_transfer_type(usb, filename, p);
 			continue;
 		}
 		/*
@@ -354,9 +349,9 @@ struct usb_id *parse_conf
 		}
 
 		if (p[0] == ':') {
-			parse_mem_work(curr, mach, p);
+			parse_mem_work(curr, filename, p);
 		} else {
-			parse_file_work(curr, mach, p);
+			parse_file_work(curr, filename, p);
 			curr = NULL;
 		}
 	}

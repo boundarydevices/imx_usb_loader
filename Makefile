@@ -25,5 +25,5 @@ install: imx_usb
 	install -m755 imx_usb ${DESTDIR}/usr/bin/imx_usb
 
 clean:
-	rm -f imx_usb imx_usb.o
+	rm -f imx_usb imx_usb.o imx_sdp.o
 
