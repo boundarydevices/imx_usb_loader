@@ -28,6 +28,9 @@
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdint.h>
+
+#include <libusb-1.0/libusb.h>
 
 #include "imx_sdp.h"
 
@@ -202,7 +205,7 @@ static libusb_device *find_imx_dev(libusb_device **devs, struct mach_id **pp_id,
 #define CTRL_OUT		LIBUSB_ENDPOINT_OUT|LIBUSB_REQUEST_TYPE_CLASS|LIBUSB_RECIPIENT_INTERFACE
 
 #define EP_IN	0x80
-void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr);
+
 
 /*
  * For HID class drivers, 4 reports are used to implement
@@ -219,6 +222,56 @@ void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr);
  *  (max size of 65 bytes with 1st byte of 0x04)
  *
  */
+int transfer_hid(struct sdp_dev *dev, int report, unsigned char *p, unsigned cnt, int* last_trans)
+{
+	int err;
+	struct libusb_device_handle *h = (struct libusb_device_handle *)dev->priv;
+	if (cnt > dev->max_transfer)
+		cnt = dev->max_transfer;
+#ifdef DEBUG
+	printf("report=%i\n", report);
+	if (report < 3)
+		dump_bytes(p, cnt, 0);
+#endif
+	unsigned char tmp[1028];
+	tmp[0] = (unsigned char)report;
+	if (report < 3) {
+		memcpy(&tmp[1], p, cnt);
+		err = libusb_control_transfer(h,
+				CTRL_OUT,
+				HID_SET_REPORT,
+				(HID_REPORT_TYPE_OUTPUT << 8) | report,
+				0,
+				tmp, cnt + 1, 1000);
+		*last_trans = (err > 0) ? err - 1 : 0;
+		if (err > 0)
+			err = 0;
+	} else {
+		*last_trans = 0;
+		memset(&tmp[1], 0, cnt);
+		err = libusb_interrupt_transfer(h, 1 + EP_IN, tmp, cnt + 1, last_trans, 1000);
+		if (err >= 0) {
+			if (tmp[0] == (unsigned char)report)
+				if (*last_trans > 1) {
+					*last_trans -= 1;
+					memcpy(p, &tmp[1], *last_trans);
+				}
+			else {
+				printf("Unexpected report %i err=%i, cnt=%i, last_trans=%i, %02x %02x %02x %02x\n",
+					tmp[0], err, cnt, *last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+				err = 0;
+			}
+		}
+	}
+#ifdef DEBUG
+	if (report >= 3)
+		dump_bytes(p, cnt, 0);
+#endif
+	return err;
+}
+
+
+
 /*
  * For Bulk class drivers, the device is configured as
  * EP0IN, EP0OUT control transfer
@@ -227,51 +280,21 @@ void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr);
  * EP2IN - bulk in
  * (max packet size of 512 bytes)
  */
-int transfer(struct libusb_device_handle *h, int report, unsigned char *p, unsigned cnt, int* last_trans, struct sdp_dev *p_id)
+
+int transfer_bulk(struct sdp_dev *dev, int report, unsigned char *p, unsigned cnt, int* last_trans)
 {
 	int err;
-	if (cnt > p_id->max_transfer)
-		cnt = p_id->max_transfer;
+	struct libusb_device_handle *h = (struct libusb_device_handle *)dev->priv;
+	if (cnt > dev->max_transfer)
+		cnt = dev->max_transfer;
 #ifdef DEBUG
 	printf("report=%i\n", report);
 	if (report < 3)
 		dump_bytes(p, cnt, 0);
 #endif
-	if (p_id->mode == MODE_BULK) {
-		*last_trans = 0;
-		err = libusb_bulk_transfer(h, (report < 3) ? 1 : 2 + EP_IN, p, cnt, last_trans, 1000);
-	} else {
-		unsigned char tmp[1028];
-		tmp[0] = (unsigned char)report;
-		if (report < 3) {
-			memcpy(&tmp[1], p, cnt);
-			err = libusb_control_transfer(h,
-					CTRL_OUT,
-					HID_SET_REPORT,
-					(HID_REPORT_TYPE_OUTPUT << 8) | report,
-					0,
-					tmp, cnt + 1, 1000);
-			*last_trans = (err > 0) ? err - 1 : 0;
-			if (err > 0)
-				err = 0;
-		} else {
-			*last_trans = 0;
-			memset(&tmp[1], 0, cnt);
-			err = libusb_interrupt_transfer(h, 1 + EP_IN, tmp, cnt + 1, last_trans, 1000);
-			if (err >= 0) {
-				if (tmp[0] == (unsigned char)report)
-					if (*last_trans > 1) {
-						*last_trans -= 1;
-						memcpy(p, &tmp[1], *last_trans);
-					}
-				else {
-					printf("Unexpected report %i err=%i, cnt=%i, last_trans=%i, %02x %02x %02x %02x\n",
-						tmp[0], err, cnt, *last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-					err = 0;
-				}
-			}
-		}
-	}
+	*last_trans = 0;
+	err = libusb_bulk_transfer(h, (report < 3) ? 1 : 2 + EP_IN, p, cnt, last_trans, 1000);
+
 #ifdef DEBUG
 	if (report >= 3)
 		dump_bytes(p, cnt, 0);
@@ -298,7 +321,7 @@ libusb_device_handle * open_vid_pid(struct mach_id *mach, struct sdp_dev *p_id)
 		printf("claim failed, err=%i\n", err);
 		goto err2;
 	}
-	err = do_status(h, p_id);
+	err = do_status(p_id);
 	if (!err)
 		return h;
 	printf("status failed, err=%i\n", err);
@@ -359,6 +382,14 @@ int main(int argc, char const *const argv[])
 	if (!p_id)
 		goto out;
 
+	if (p_id->mode == MODE_HID)
+		p_id->transfer = &transfer_hid;
+	if (p_id->mode == MODE_BULK)
+		p_id->transfer = &transfer_bulk;
+
+	// USB private pointer is libusb device handle...
+	p_id->priv = h;
+
 	libusb_get_configuration(h, &config);
 	printf("%04x:%04x(%s) bConfigurationValue =%x\n",
 			mach->vid, mach->pid, p_id->name, config);
@@ -372,7 +403,7 @@ int main(int argc, char const *const argv[])
 		goto out;
 	}
 	printf("Interface 0 claimed\n");
-	err = do_status(h, p_id);
+	err = do_status(p_id);
 	if (err) {
 		printf("status failed\n");
 		goto out;
@@ -439,18 +470,18 @@ int main(int argc, char const *const argv[])
 		curr = &w[0];
 	while (curr) {
 		if (curr->mem)
-			perform_mem_work(h, p_id, curr->mem);
+			perform_mem_work(p_id, curr->mem);
 //		printf("jump_mode %x\n", curr->jump_mode);
 		if (curr->filename[0]) {
-			err = DoIRomDownload(h, p_id, curr, verify);
+			err = DoIRomDownload(p_id, curr, verify);
 		}
 		if (err) {
-			err = do_status(h, p_id);
+			err = do_status(p_id);
 			break;
 		}
 		if (!curr->next && (!curr->plug || (w_index != 0)))
 			break;
-		err = do_status(h, p_id);
+		err = do_status(p_id);
 		printf("jump_mode %x plug=%i err=%i\n", curr->jump_mode, curr->plug, err);
 		if (err) {
 			int retry;

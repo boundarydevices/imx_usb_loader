@@ -21,7 +21,6 @@
 #ifndef __IMX_SDP_H__
 #define __IMX_SDP_H__
 
-#include <libusb-1.0/libusb.h>
 struct ram_area {
 	unsigned start;
 	unsigned size;
@@ -65,16 +64,22 @@ struct sdp_dev {
 	unsigned char header_type;
 	struct ram_area ram[8];
 	struct sdp_work *work;
+	int (*transfer)(struct sdp_dev *dev, int report, unsigned char *p, unsigned cnt, int* last_trans);
+	void *priv;
 };
 
 int get_val(const char** pp, int base);
 const unsigned char *move_string(unsigned char *dest, const unsigned char *src, unsigned cnt);
+void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr);
 
 char const *conf_file_name(char const *base, int argc, char const * const *argv);
 
 struct sdp_dev *parse_conf(const char *filename, int argc, char const * const *argv);
 
-int DoIRomDownload(struct libusb_device_handle *h, struct sdp_dev *p_id, struct sdp_work *curr, int verify);
+int perform_mem_work(struct sdp_dev *dev, struct mem_work *mem);
+int do_status(struct sdp_dev *dev);
+
+int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify);
 
 
 #endif /* __IMX_SDP_H__ */

@@ -27,15 +27,12 @@
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 
 #include "imx_sdp.h"
 
 #define get_min(a, b) (((a) < (b)) ? (a) : (b))
-
-/* Transfer function.. */
-int transfer(struct libusb_device_handle *h, int report, unsigned char *p,
-		unsigned cnt, int* last_trans, struct sdp_dev *p_id);
 
 int get_val(const char** pp, int base)
 {
@@ -404,7 +401,7 @@ struct old_app_header {
 #define V(a) (((a)>>24)&0xff),(((a)>>16)&0xff),(((a)>>8)&0xff), ((a)&0xff)
 
 
-static int read_memory(struct libusb_device_handle *h, struct sdp_dev *p_id, unsigned addr, unsigned char *dest, unsigned cnt)
+static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, unsigned cnt)
 {
 //							address, format, data count, data, type
 	static unsigned char read_reg_command[] = {1,1, V(0),   0x20, V(0x00000004), V(0), 0x00};
@@ -424,7 +421,7 @@ static int read_memory(struct libusb_device_handle *h, struct sdp_dev *p_id, uns
 	read_reg_command[9] = (unsigned char)(cnt >> 8);
 	read_reg_command[10] = (unsigned char)(cnt);
 	for (;;) {
-		err = transfer(h, 1, read_reg_command, 16, &last_trans, p_id);
+		err = dev->transfer(dev, 1, read_reg_command, 16, &last_trans);
 		if (!err)
 			break;
 		printf("read_reg_command err=%i, last_trans=%i\n", err, last_trans);
@@ -433,7 +430,7 @@ static int read_memory(struct libusb_device_handle *h, struct sdp_dev *p_id, uns
 		}
 		retry++;
 	}
-	err = transfer(h, 3, tmp, 4, &last_trans, p_id);
+	err = dev->transfer(dev, 3, tmp, 4, &last_trans);
 	if (err) {
 		printf("r3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
 		return err;
@@ -441,7 +438,7 @@ static int read_memory(struct libusb_device_handle *h, struct sdp_dev *p_id, uns
 	rem = cnt;
 	while (rem) {
 		tmp[0] = tmp[1] = tmp[2] = tmp[3] = 0;
-		err = transfer(h, 4, tmp, 64, &last_trans, p_id);
+		err = dev->transfer(dev, 4, tmp, 64, &last_trans);
 		if (err) {
 			printf("r4 in err=%i, last_trans=%i  %02x %02x %02x %02x cnt=%d rem=%d\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3], cnt, rem);
 			break;
@@ -465,7 +462,7 @@ static int read_memory(struct libusb_device_handle *h, struct sdp_dev *p_id, uns
 
 //						address, format, data count, data, type
 static unsigned char write_reg_command[] = {2,2, V(0),   0x20, V(0x00000004), V(0), 0x00};
-static int write_memory(struct libusb_device_handle *h, struct sdp_dev *p_id, unsigned addr, unsigned val)
+static int write_memory(struct sdp_dev *dev, unsigned addr, unsigned val)
 {
 	int retry = 0;
 	int last_trans;
@@ -481,7 +478,7 @@ static int write_memory(struct libusb_device_handle *h, struct sdp_dev *p_id, un
 	write_reg_command[13] = (unsigned char)(val >> 8);
 	write_reg_command[14] = (unsigned char)(val);
 	for (;;) {
-		err = transfer(h, 1, write_reg_command, 16, &last_trans, p_id);
+		err = dev->transfer(dev, 1, write_reg_command, 16, &last_trans);
 		if (!err)
 			break;
 		printf("write_reg_command err=%i, last_trans=%i\n", err, last_trans);
@@ -491,7 +488,7 @@ static int write_memory(struct libusb_device_handle *h, struct sdp_dev *p_id, un
 		retry++;
 	}
 	memset(tmp, 0, sizeof(tmp));
-	err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
+	err = dev->transfer(dev, 3, tmp, sizeof(tmp), &last_trans);
 	if (0) printf("err=%i, last_trans=%i  %02x %02x %02x %02x  %02x %02x %02x %02x\n",
 			err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3],
 			tmp[4], tmp[5], tmp[6], tmp[7]);
@@ -500,7 +497,7 @@ static int write_memory(struct libusb_device_handle *h, struct sdp_dev *p_id, un
 		printf("addr=0x%08x, val=0x%08x\n", addr, val);
 	}
 	memset(tmp, 0, sizeof(tmp));
-	err = transfer(h, 4, tmp, sizeof(tmp), &last_trans, p_id);
+	err = dev->transfer(dev, 4, tmp, sizeof(tmp), &last_trans);
 	if (0) printf("err=%i, last_trans=%i  %02x %02x %02x %02x  %02x %02x %02x %02x\n",
 			err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3],
 			tmp[4], tmp[5], tmp[6], tmp[7]);
@@ -509,32 +506,32 @@ static int write_memory(struct libusb_device_handle *h, struct sdp_dev *p_id, un
 	return err;
 }
 
-int perform_mem_work(struct libusb_device_handle *h, struct sdp_dev *p_id, struct mem_work *mem)
+int perform_mem_work(struct sdp_dev *dev, struct mem_work *mem)
 {
 	unsigned tmp, tmp2;
 
 	while (mem) {
 		switch (mem->type) {
 		case MEM_TYPE_READ:
-			read_memory(h, p_id, mem->vals[0], (unsigned char *)&tmp, 4);
+			read_memory(dev, mem->vals[0], (unsigned char *)&tmp, 4);
 			printf("*%x is %x\n", mem->vals[0], tmp);
 			break;
 		case MEM_TYPE_WRITE:
-			write_memory(h, p_id, mem->vals[0], mem->vals[1]);
+			write_memory(dev, mem->vals[0], mem->vals[1]);
 			printf("%x write %x\n", mem->vals[0], mem->vals[1]);
 			break;
 		case MEM_TYPE_MODIFY:
-			read_memory(h, p_id, mem->vals[0], (unsigned char *)&tmp, 4);
+			read_memory(dev, mem->vals[0], (unsigned char *)&tmp, 4);
 			tmp2 = (tmp & ~mem->vals[1]) | mem->vals[2];
 			printf("%x = %x to %x\n", mem->vals[0], tmp, tmp2);
-			write_memory(h, p_id, mem->vals[0], tmp2);
+			write_memory(dev, mem->vals[0], tmp2);
 			break;
 		}
 		mem = mem->next;
 	}
 }
 
-static int write_dcd_table_ivt(struct libusb_device_handle *h, struct sdp_dev *p_id, struct ivt_header *hdr, unsigned char *file_start, unsigned cnt)
+static int write_dcd_table_ivt(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char *file_start, unsigned cnt)
 {
 	unsigned char *dcd_end;
 	unsigned m_length;
@@ -581,7 +578,7 @@ static int write_dcd_table_ivt(struct libusb_device_handle *h, struct sdp_dev *p
 			unsigned val = (dcd[4] << 24) + (dcd[5] << 16) | (dcd[6] << 8) + dcd[7];
 			dcd += 8;
 //			printf("*0x%08x = 0x%08x\n", addr, val);
-			err = write_memory(h, p_id, addr, val);
+			err = write_memory(dev, addr, val);
 			if (err < 0)
 				return err;
 		}
@@ -630,7 +627,7 @@ static int get_dcd_range_old(struct old_app_header *hdr,
 	return 0;
 }
 
-static int write_dcd_table_old(struct libusb_device_handle *h, struct sdp_dev *p_id, struct old_app_header *hdr, unsigned char *file_start, unsigned cnt)
+static int write_dcd_table_old(struct sdp_dev *dev, struct old_app_header *hdr, unsigned char *file_start, unsigned cnt)
 {
 	unsigned val;
 	unsigned char *dcd_end;
@@ -648,7 +645,7 @@ static int write_dcd_table_old(struct libusb_device_handle *h, struct sdp_dev *p
 			printf("!!!unknown type=%08x *0x%08x = 0x%08x\n", type, addr, val);
 		} else {
 			printf("type=%08x *0x%08x = 0x%08x\n", type, addr, val);
-			err = write_memory(h, p_id, addr, val);
+			err = write_memory(dev, addr, val);
 			if (err < 0)
 				return err;
 		}
@@ -751,9 +748,9 @@ void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr)
 	}
 }
 
-int verify_memory(struct libusb_device_handle *h, struct sdp_dev *p_id,
-		FILE *xfile, unsigned offset, unsigned addr, unsigned size,
-		unsigned char *verify_buffer, unsigned verify_cnt)
+int verify_memory(struct sdp_dev *dev, FILE *xfile, unsigned offset,
+		unsigned addr, unsigned size, unsigned char *verify_buffer,
+		unsigned verify_cnt)
 {
 	int mismatch = 0;
 	unsigned char file_buf[1024];
@@ -785,7 +782,7 @@ int verify_memory(struct libusb_device_handle *h, struct sdp_dev *p_id,
 		while (cnt) {
 			int ret;
 			request = get_min(cnt, sizeof(mem_buf));
-			ret = read_memory(h, p_id, addr, mem_buf, request);
+			ret = read_memory(dev, addr, mem_buf, request);
 			if (ret < 0)
 				return ret;
 			if (memcmp(p, mem_buf, request)) {
@@ -824,9 +821,9 @@ int verify_memory(struct libusb_device_handle *h, struct sdp_dev *p_id,
 	return mismatch ? -1 : 0;
 }
 
-int is_header(struct sdp_dev *p_id, unsigned char *p)
+int is_header(struct sdp_dev *dev, unsigned char *p)
 {
-	switch (p_id->header_type) {
+	switch (dev->header_type) {
 	case HDR_MX51:
 	{
 		struct old_app_header *ohdr = (struct old_app_header *)p;
@@ -844,14 +841,14 @@ int is_header(struct sdp_dev *p_id, unsigned char *p)
 	return 0;
 }
 
-int perform_dcd(struct libusb_device_handle *h, struct sdp_dev *p_id, unsigned char *p, unsigned char *file_start, unsigned cnt)
+int perform_dcd(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start, unsigned cnt)
 {
 	int ret = 0;
-	switch (p_id->header_type) {
+	switch (dev->header_type) {
 	case HDR_MX51:
 	{
 		struct old_app_header *ohdr = (struct old_app_header *)p;
-		ret = write_dcd_table_old(h, p_id, ohdr, file_start, cnt);
+		ret = write_dcd_table_old(dev, ohdr, file_start, cnt);
 		printf("dcd_ptr=0x%08x\n", ohdr->dcd_ptr);
 #if 1
 		ohdr->dcd_ptr = 0;
@@ -863,7 +860,7 @@ int perform_dcd(struct libusb_device_handle *h, struct sdp_dev *p_id, unsigned c
 	case HDR_MX53:
 	{
 		struct ivt_header *hdr = (struct ivt_header *)p;
-		ret = write_dcd_table_ivt(h, p_id, hdr, file_start, cnt);
+		ret = write_dcd_table_ivt(dev, hdr, file_start, cnt);
 		printf("dcd_ptr=0x%08x\n", hdr->dcd_ptr);
 #if 1
 		hdr->dcd_ptr = 0;
@@ -876,10 +873,10 @@ int perform_dcd(struct libusb_device_handle *h, struct sdp_dev *p_id, unsigned c
 	return 0;
 }
 
-int clear_dcd_ptr(struct libusb_device_handle *h, struct sdp_dev *p_id, unsigned char *p, unsigned char *file_start, unsigned cnt)
+int clear_dcd_ptr(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start, unsigned cnt)
 {
 	int ret = 0;
-	switch (p_id->header_type) {
+	switch (dev->header_type) {
 	case HDR_MX51:
 	{
 		struct old_app_header *ohdr = (struct old_app_header *)p;
@@ -903,10 +900,10 @@ int clear_dcd_ptr(struct libusb_device_handle *h, struct sdp_dev *p_id, unsigned
 //#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
 #endif
 
-int get_dl_start(struct sdp_dev *p_id, unsigned char *p, unsigned char *file_start, unsigned cnt, unsigned *dladdr, unsigned *max_length, unsigned *plugin, unsigned *header_addr)
+int get_dl_start(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start, unsigned cnt, unsigned *dladdr, unsigned *max_length, unsigned *plugin, unsigned *header_addr)
 {
 	unsigned char* file_end = file_start + cnt;
-	switch (p_id->header_type) {
+	switch (dev->header_type) {
 	case HDR_MX51:
 	{
 		struct old_app_header *ohdr = (struct old_app_header *)p;
@@ -945,11 +942,38 @@ int get_dl_start(struct sdp_dev *p_id, unsigned char *p, unsigned char *file_sta
 	return 0;
 }
 
-int do_status(libusb_device_handle *h, struct sdp_dev *p_id);
+int do_status(struct sdp_dev *dev)
+{
+	static const unsigned char statusCommand[]={5,5,0,0,0,0, 0, 0,0,0,0, 0,0,0,0, 0};
 
-int process_header(struct libusb_device_handle *h, struct sdp_dev *p_id,
-		struct sdp_work *curr, unsigned char *buf, int cnt,
-		unsigned *p_dladdr, unsigned *p_max_length, unsigned *p_plugin,
+	int last_trans;
+	unsigned char tmp[64];
+	int retry = 0;
+	int err;
+	for (;;) {
+		err = dev->transfer(dev, 1, (unsigned char*)statusCommand, 16, &last_trans);
+		printf("report 1, wrote %i bytes, err=%i\n", last_trans, err);
+		memset(tmp, 0, sizeof(tmp));
+		err = dev->transfer(dev, 3, tmp, 64, &last_trans);
+		printf("report 3, read %i bytes, err=%i\n", last_trans, err);
+		printf("read=%02x %02x %02x %02x\n", tmp[0], tmp[1], tmp[2], tmp[3]);
+		if (!err)
+			break;
+		retry++;
+		if (retry > 5)
+			break;
+	}
+	if (dev->mode == MODE_HID) {
+		err = dev->transfer(dev, 4, tmp, sizeof(tmp), &last_trans);
+		if (err)
+			printf("4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+	}
+	return err;
+}
+
+int process_header(struct sdp_dev *dev, struct sdp_work *curr,
+		unsigned char *buf, int cnt, unsigned *p_dladdr,
+		unsigned *p_max_length, unsigned *p_plugin,
 		unsigned *p_header_addr)
 {
 	int ret;
@@ -961,14 +985,14 @@ int process_header(struct libusb_device_handle *h, struct sdp_dev *p_id,
 
 	while (header_offset < header_max) {
 //		printf("header_offset=%x\n", header_offset);
-		if (is_header(p_id, p)) {
-			ret = get_dl_start(p_id, p, buf, cnt, p_dladdr, p_max_length, p_plugin, p_header_addr);
+		if (is_header(dev, p)) {
+			ret = get_dl_start(dev, p, buf, cnt, p_dladdr, p_max_length, p_plugin, p_header_addr);
 			if (ret < 0) {
 				printf("!!get_dl_start returned %i\n", ret);
 				return ret;
 			}
 			if (curr->dcd) {
-				ret = perform_dcd(h, p_id, p, buf, cnt);
+				ret = perform_dcd(dev, p, buf, cnt);
 				if (ret < 0) {
 					printf("!!perform_dcd returned %i\n", ret);
 					return ret;
@@ -980,7 +1004,7 @@ int process_header(struct libusb_device_handle *h, struct sdp_dev *p_id,
 				}
 			}
 			if (curr->clear_dcd) {
-				ret = clear_dcd_ptr(h, p_id, p, buf, cnt);
+				ret = clear_dcd_ptr(dev, p, buf, cnt);
 				if (ret < 0) {
 					printf("!!clear_dcd returned %i\n", ret);
 					return ret;
@@ -1005,7 +1029,7 @@ int process_header(struct libusb_device_handle *h, struct sdp_dev *p_id,
 	return header_offset;
 }
 
-int load_file(struct libusb_device_handle *h, struct sdp_dev *p_id,
+int load_file(struct sdp_dev *dev,
 		unsigned char *p, int cnt, unsigned char *buf, unsigned buf_cnt,
 		unsigned dladdr, unsigned fsize, unsigned char type, FILE* xfile)
 {
@@ -1014,7 +1038,7 @@ int load_file(struct libusb_device_handle *h, struct sdp_dev *p_id,
 	int last_trans, err;
 	int retry = 0;
 	unsigned transferSize=0;
-	int max = p_id->max_transfer;
+	int max = dev->max_transfer;
 	unsigned char tmp[64];
 
 	dlCommand[2] = (unsigned char)(dladdr>>24);
@@ -1029,7 +1053,7 @@ int load_file(struct libusb_device_handle *h, struct sdp_dev *p_id,
 	dlCommand[15] =  type;
 
 	for (;;) {
-		err = transfer(h, 1, dlCommand, 16, &last_trans, p_id);
+		err = dev->transfer(dev, 1, dlCommand, 16, &last_trans);
 		if (!err)
 			break;
 		printf("dlCommand err=%i, last_trans=%i\n", err, last_trans);
@@ -1038,8 +1062,8 @@ int load_file(struct libusb_device_handle *h, struct sdp_dev *p_id,
 		retry++;
 	}
 	retry = 0;
-	if (p_id->mode == MODE_BULK) {
-		err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
+	if (dev->mode == MODE_BULK) {
+		err = dev->transfer(dev, 3, tmp, sizeof(tmp), &last_trans);
 		if (err)
 			printf("in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
 	}
@@ -1051,7 +1075,7 @@ int load_file(struct libusb_device_handle *h, struct sdp_dev *p_id,
 			break;
 		retry = 0;
 		while (cnt) {
-			err = transfer(h, 2, p, get_min(cnt, max), &last_trans, p_id);
+			err = dev->transfer(dev, 2, p, get_min(cnt, max), &last_trans);
 //			printf("err=%i, last_trans=0x%x, cnt=0x%x, max=0x%x\n", err, last_trans, cnt, max);
 			if (err) {
 				printf("out err=%i, last_trans=%i cnt=0x%x max=0x%x transferSize=0x%X retry=%i\n", err, last_trans, cnt, max, transferSize, retry);
@@ -1063,13 +1087,13 @@ int load_file(struct libusb_device_handle *h, struct sdp_dev *p_id,
 					max >>= 1;
 				else
 					max <<= 1;
-//				err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
+//				err = dev->transfer(dev, 3, tmp, sizeof(tmp), &last_trans);
 //				printf("in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
 				usleep(10000);
 				retry++;
 				continue;
 			}
-			max = p_id->max_transfer;
+			max = dev->max_transfer;
 			retry = 0;
 			if (cnt < last_trans) {
 				printf("error: last_trans=0x%x, attempted only=0%x\n", last_trans, cnt);
@@ -1092,30 +1116,29 @@ int load_file(struct libusb_device_handle *h, struct sdp_dev *p_id,
 		p = buf;
 	}
 	printf("\r\n<<<%i, %i bytes>>>\r\n", fsize, transferSize);
-	if (p_id->mode == MODE_HID) {
-		err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
+	if (dev->mode == MODE_HID) {
+		err = dev->transfer(dev, 3, tmp, sizeof(tmp), &last_trans);
 		if (err)
 			printf("3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-		err = transfer(h, 4, tmp, sizeof(tmp), &last_trans, p_id);
+		err = dev->transfer(dev, 4, tmp, sizeof(tmp), &last_trans);
 		if (err)
 			printf("4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
 	} else {
-//		err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
+//		err = dev->transfer(dev, 3, tmp, sizeof(tmp), &last_trans);
 //		if (err)
 //			printf("3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-		do_status(h, p_id);
+		do_status(dev);
 	}
 	return transferSize;
 }
 
-static const unsigned char statusCommand[]={5,5,0,0,0,0, 0, 0,0,0,0, 0,0,0,0, 0};
 #define MAX_IN_LENGTH 100 // max length for user input strings
 
 #define FT_APP	0xaa
 #define FT_CSF	0xcc
 #define FT_DCD	0xee
 #define FT_LOAD_ONLY	0x00
-int DoIRomDownload(struct libusb_device_handle *h, struct sdp_dev *p_id, struct sdp_work *curr, int verify)
+int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 {
 //							address, format, data count, data, type
 	static unsigned char jump_command[] = {0x0b,0x0b, V(0),  0x00, V(0x00000000), V(0), 0x00};
@@ -1171,7 +1194,7 @@ int DoIRomDownload(struct libusb_device_handle *h, struct sdp_dev *p_id, struct 
 	}
 	max_length = fsize;
 	if (curr->dcd || curr->clear_dcd || curr->plug || (curr->jump_mode >= J_HEADER)) {
-		ret = process_header(h, p_id, curr, buf, cnt,
+		ret = process_header(dev, curr, buf, cnt,
 				&dladdr, &max_length, &plugin, &header_addr);
 		if (ret < 0)
 			goto cleanup;
@@ -1199,7 +1222,7 @@ int DoIRomDownload(struct libusb_device_handle *h, struct sdp_dev *p_id, struct 
 	}
 	file_base = header_addr - header_offset;
 	type = (curr->plug || curr->jump_mode) ? FT_APP : FT_LOAD_ONLY;
-	if (p_id->mode == MODE_BULK) if (type == FT_APP) {
+	if (dev->mode == MODE_BULK) if (type == FT_APP) {
 		/* No jump command, dladdr should point to header */
 		dladdr = header_addr;
 	}
@@ -1239,26 +1262,26 @@ int DoIRomDownload(struct libusb_device_handle *h, struct sdp_dev *p_id, struct 
 			goto cleanup;
 		}
 		memcpy(verify_buffer, p, cnt);
-		if ((type == FT_APP) && (p_id->mode != MODE_HID)) {
+		if ((type == FT_APP) && (dev->mode != MODE_HID)) {
 			type = FT_LOAD_ONLY;
 			verify = 2;
 		}
 	}
 	printf("\nloading binary file(%s) to %08x, skip=%x, fsize=%x type=%x\r\n", curr->filename, dladdr, skip, fsize, type);
-	ret = load_file(h, p_id, p, cnt, buf, BUF_SIZE,
+	ret = load_file(dev, p, cnt, buf, BUF_SIZE,
 			dladdr, fsize, type, xfile);
 	if (ret < 0)
 		goto cleanup;
 	transferSize = ret;
 
 	if (verify) {
-		ret = verify_memory(h, p_id, xfile, skip, dladdr, fsize, verify_buffer, verify_cnt);
+		ret = verify_memory(dev, xfile, skip, dladdr, fsize, verify_buffer, verify_cnt);
 		if (ret < 0)
 			goto cleanup;
 		if (verify == 2) {
 			if (verify_cnt > 64)
 				verify_cnt = 64;
-			ret = load_file(h, p_id, verify_buffer, verify_cnt,
+			ret = load_file(dev, verify_buffer, verify_cnt,
 					buf, BUF_SIZE, dladdr, verify_cnt,
 					FT_APP, xfile);
 			if (ret < 0)
@@ -1266,7 +1289,7 @@ int DoIRomDownload(struct libusb_device_handle *h, struct sdp_dev *p_id, struct 
 
 		}
 	}
-	if (p_id->mode == MODE_HID) if (type == FT_APP) {
+	if (dev->mode == MODE_HID) if (type == FT_APP) {
 		printf("jumping to 0x%08x\n", header_addr);
 		jump_command[2] = (unsigned char)(header_addr >> 24);
 		jump_command[3] = (unsigned char)(header_addr >> 16);
@@ -1275,7 +1298,7 @@ int DoIRomDownload(struct libusb_device_handle *h, struct sdp_dev *p_id, struct 
 		//Any command will initiate jump for mx51, jump address is ignored by mx51
 		retry = 0;
 		for (;;) {
-			err = transfer(h, 1, jump_command, 16, &last_trans, p_id);
+			err = dev->transfer(dev, 1, jump_command, 16, &last_trans);
 			if (!err)
 				break;
 			printf("jump_command err=%i, last_trans=%i\n", err, last_trans);
@@ -1285,12 +1308,12 @@ int DoIRomDownload(struct libusb_device_handle *h, struct sdp_dev *p_id, struct 
 			retry++;
 		}
 		memset(tmp, 0, sizeof(tmp));
-		err = transfer(h, 3, tmp, sizeof(tmp), &last_trans, p_id);
+		err = dev->transfer(dev, 3, tmp, sizeof(tmp), &last_trans);
 		if (err)
 			printf("j3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-		if (0) if (p_id->mode == MODE_HID) {
+		if (0) if (dev->mode == MODE_HID) {
 			memset(tmp, 0, sizeof(tmp));
-			err = transfer(h, 4, tmp, sizeof(tmp), &last_trans, p_id);
+			err = dev->transfer(dev, 4, tmp, sizeof(tmp), &last_trans);
 			printf("j4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
 		}
 	}
@@ -1300,32 +1323,5 @@ cleanup:
 	free(verify_buffer);
 	free(buf);
 	return ret;
-}
-
-int do_status(libusb_device_handle *h, struct sdp_dev *p_id)
-{
-	int last_trans;
-	unsigned char tmp[64];
-	int retry = 0;
-	int err;
-	for (;;) {
-		err = transfer(h, 1, (unsigned char*)statusCommand, 16, &last_trans, p_id);
-		printf("report 1, wrote %i bytes, err=%i\n", last_trans, err);
-		memset(tmp, 0, sizeof(tmp));
-		err = transfer(h, 3, tmp, 64, &last_trans, p_id);
-		printf("report 3, read %i bytes, err=%i\n", last_trans, err);
-		printf("read=%02x %02x %02x %02x\n", tmp[0], tmp[1], tmp[2], tmp[3]);
-		if (!err)
-			break;
-		retry++;
-		if (retry > 5)
-			break;
-	}
-	if (p_id->mode == MODE_HID) {
-		err = transfer(h, 4, tmp, sizeof(tmp), &last_trans, p_id);
-		if (err)
-			printf("4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-	}
-	return err;
 }
 
