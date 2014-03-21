@@ -1,4 +1,4 @@
-all: imx_usb
+all: imx_usb imx_uart
 
 BUILDHOST := $(shell uname -s)
 BUILDHOST := $(patsubst CYGWIN_%,CYGWIN,$(BUILDHOST))
@@ -20,10 +20,13 @@ endif
 imx_usb: imx_usb.o imx_sdp.o
 	$(CC) -o $@ $@.o imx_sdp.o $(LDFLAGS)
 
+imx_uart: imx_uart.o imx_sdp.o
+	$(CC) -o $@ $@.o imx_sdp.o
+
 install: imx_usb
 	mkdir -p ${DESTDIR}/usr/bin/
 	install -m755 imx_usb ${DESTDIR}/usr/bin/imx_usb
 
 clean:
-	rm -f imx_usb imx_usb.o imx_sdp.o
+	rm -f imx_usb imx_uart imx_usb.o imx_uart.o imx_sdp.o
 
