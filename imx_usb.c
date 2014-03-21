@@ -33,6 +33,14 @@
 
 #define get_min(a, b) (((a) < (b)) ? (a) : (b))
 
+struct mach_id;
+struct mach_id {
+	struct mach_id * next;
+	unsigned short vid;
+	unsigned short pid;
+	char file_name[256];
+};
+
 static void print_devs(libusb_device **devs)
 {
 	int j, k, l;
@@ -343,7 +351,10 @@ int main(int argc, char const *const argv[])
 
 	if (!h)
 		goto out;
-	p_id = parse_conf(mach,argc,argv);
+	p_id = parse_conf(mach->file_name,argc,argv);
+	p_id->vid = mach->vid;
+	p_id->pid = mach->pid;
+
 	if (!p_id)
 		goto out;
 	libusb_get_configuration(h, &config);
