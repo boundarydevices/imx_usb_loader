@@ -950,11 +950,18 @@ int do_status(struct sdp_dev *dev)
 	unsigned char tmp[64];
 	int retry = 0;
 	int err;
+	int cnt = 64;
+
+	if (dev->mode == MODE_HID)
+		cnt = 4;
+
 	for (;;) {
 		err = dev->transfer(dev, 1, (unsigned char*)statusCommand, 16, &last_trans);
 		printf("report 1, wrote %i bytes, err=%i\n", last_trans, err);
 		memset(tmp, 0, sizeof(tmp));
-		err = dev->transfer(dev, 3, tmp, 64, &last_trans);
+
+
+		err = dev->transfer(dev, 3, tmp, cnt, &last_trans);
 		printf("report 3, read %i bytes, err=%i\n", last_trans, err);
 		printf("read=%02x %02x %02x %02x\n", tmp[0], tmp[1], tmp[2], tmp[3]);
 		if (!err)
@@ -964,9 +971,9 @@ int do_status(struct sdp_dev *dev)
 			break;
 	}
 	if (dev->mode == MODE_HID) {
-		err = dev->transfer(dev, 4, tmp, sizeof(tmp), &last_trans);
-		if (err)
-			printf("4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+		err = dev->transfer(dev, 4, tmp, cnt, &last_trans);
+		printf("report 4, read %i bytes, err=%i\n", last_trans, err);
+		printf("read=%02x %02x %02x %02x\n", tmp[0], tmp[1], tmp[2], tmp[3]);
 	}
 	return err;
 }
