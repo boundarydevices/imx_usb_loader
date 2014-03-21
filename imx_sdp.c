@@ -35,7 +35,7 @@
 
 /* Transfer function.. */
 int transfer(struct libusb_device_handle *h, int report, unsigned char *p,
-		unsigned cnt, int* last_trans, struct usb_id *p_id);
+		unsigned cnt, int* last_trans, struct sdp_dev *p_id);
 
 int get_val(const char** pp, int base)
 {
@@ -137,7 +137,7 @@ int end_of_line(const char *p)
 }
 
 
-void parse_mem_work(struct usb_work *curr, const char *filename, const char *p)
+void parse_mem_work(struct sdp_work *curr, const char *filename, const char *p)
 {
 	struct mem_work *wp;
 	struct mem_work **link;
@@ -189,7 +189,7 @@ void parse_mem_work(struct usb_work *curr, const char *filename, const char *p)
 	*link = wp;
 }
 
-void parse_file_work(struct usb_work *curr, const char *filename, const char *p)
+void parse_file_work(struct sdp_work *curr, const char *filename, const char *p)
 {
 	const char *start = p;
 
@@ -249,7 +249,7 @@ void parse_file_work(struct usb_work *curr, const char *filename, const char *p)
  *hid,1024,0x10000000,1G,0x00907000,0x31000
  *
  */
-void parse_transfer_type(struct usb_id *usb, const char *filename, const char *p)
+void parse_transfer_type(struct sdp_dev *usb, const char *filename, const char *p)
 {
 	int i;
 
@@ -293,17 +293,17 @@ void parse_transfer_type(struct usb_id *usb, const char *filename, const char *p
 	}
 }
 
-struct usb_id *parse_conf(const char *filename, int argc, char const * const *argv)
+struct sdp_dev *parse_conf(const char *filename, int argc, char const * const *argv)
 {
 	char line[512];
 	FILE *xfile;
 	const char *p;
-	struct usb_work *tail = NULL;
-	struct usb_work *curr = NULL;
-	struct usb_id *usb = (struct usb_id *)malloc(sizeof(struct usb_id));
+	struct sdp_work *tail = NULL;
+	struct sdp_work *curr = NULL;
+	struct sdp_dev *usb = (struct sdp_dev *)malloc(sizeof(struct sdp_dev));
 	if (!usb)
 		return NULL;
-	memset(usb, 0, sizeof(struct usb_id));
+	memset(usb, 0, sizeof(struct sdp_dev));
 
 	xfile = fopen(conf_file_name(filename,argc,argv), "rb" );
 	if (!xfile) {
@@ -336,10 +336,10 @@ struct usb_id *parse_conf(const char *filename, int argc, char const * const *ar
 		 * #file:dcd,plug,load nnn,jump [nnn/header/header2]
 		 */
 		if (!curr) {
-			curr = (struct usb_work *)malloc(sizeof(struct usb_work));
+			curr = (struct sdp_work *)malloc(sizeof(struct sdp_work));
 			if (!curr)
 				break;
-			memset(curr, 0, sizeof(struct usb_work));
+			memset(curr, 0, sizeof(struct sdp_work));
 			if (!usb->work)
 				usb->work = curr;
 			if (tail)
@@ -404,7 +404,7 @@ struct old_app_header {
 #define V(a) (((a)>>24)&0xff),(((a)>>16)&0xff),(((a)>>8)&0xff), ((a)&0xff)
 
 
-static int read_memory(struct libusb_device_handle *h, struct usb_id *p_id, unsigned addr, unsigned char *dest, unsigned cnt)
+static int read_memory(struct libusb_device_handle *h, struct sdp_dev *p_id, unsigned addr, unsigned char *dest, unsigned cnt)
 {
 //							address, format, data count, data, type
 	static unsigned char read_reg_command[] = {1,1, V(0),   0x20, V(0x00000004), V(0), 0x00};
@@ -465,7 +465,7 @@ static int read_memory(struct libusb_device_handle *h, struct usb_id *p_id, unsi
 
 //						address, format, data count, data, type
 static unsigned char write_reg_command[] = {2,2, V(0),   0x20, V(0x00000004), V(0), 0x00};
-static int write_memory(struct libusb_device_handle *h, struct usb_id *p_id, unsigned addr, unsigned val)
+static int write_memory(struct libusb_device_handle *h, struct sdp_dev *p_id, unsigned addr, unsigned val)
 {
 	int retry = 0;
 	int last_trans;
@@ -509,7 +509,7 @@ static int write_memory(struct libusb_device_handle *h, struct usb_id *p_id, uns
 	return err;
 }
 
-int perform_mem_work(struct libusb_device_handle *h, struct usb_id *p_id, struct mem_work *mem)
+int perform_mem_work(struct libusb_device_handle *h, struct sdp_dev *p_id, struct mem_work *mem)
 {
 	unsigned tmp, tmp2;
 
@@ -534,7 +534,7 @@ int perform_mem_work(struct libusb_device_handle *h, struct usb_id *p_id, struct
 	}
 }
 
-static int write_dcd_table_ivt(struct libusb_device_handle *h, struct usb_id *p_id, struct ivt_header *hdr, unsigned char *file_start, unsigned cnt)
+static int write_dcd_table_ivt(struct libusb_device_handle *h, struct sdp_dev *p_id, struct ivt_header *hdr, unsigned char *file_start, unsigned cnt)
 {
 	unsigned char *dcd_end;
 	unsigned m_length;
@@ -630,7 +630,7 @@ static int get_dcd_range_old(struct old_app_header *hdr,
 	return 0;
 }
 
-static int write_dcd_table_old(struct libusb_device_handle *h, struct usb_id *p_id, struct old_app_header *hdr, unsigned char *file_start, unsigned cnt)
+static int write_dcd_table_old(struct libusb_device_handle *h, struct sdp_dev *p_id, struct old_app_header *hdr, unsigned char *file_start, unsigned cnt)
 {
 	unsigned val;
 	unsigned char *dcd_end;
@@ -751,7 +751,7 @@ void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr)
 	}
 }
 
-int verify_memory(struct libusb_device_handle *h, struct usb_id *p_id,
+int verify_memory(struct libusb_device_handle *h, struct sdp_dev *p_id,
 		FILE *xfile, unsigned offset, unsigned addr, unsigned size,
 		unsigned char *verify_buffer, unsigned verify_cnt)
 {
@@ -824,7 +824,7 @@ int verify_memory(struct libusb_device_handle *h, struct usb_id *p_id,
 	return mismatch ? -1 : 0;
 }
 
-int is_header(struct usb_id *p_id, unsigned char *p)
+int is_header(struct sdp_dev *p_id, unsigned char *p)
 {
 	switch (p_id->header_type) {
 	case HDR_MX51:
@@ -844,7 +844,7 @@ int is_header(struct usb_id *p_id, unsigned char *p)
 	return 0;
 }
 
-int perform_dcd(struct libusb_device_handle *h, struct usb_id *p_id, unsigned char *p, unsigned char *file_start, unsigned cnt)
+int perform_dcd(struct libusb_device_handle *h, struct sdp_dev *p_id, unsigned char *p, unsigned char *file_start, unsigned cnt)
 {
 	int ret = 0;
 	switch (p_id->header_type) {
@@ -876,7 +876,7 @@ int perform_dcd(struct libusb_device_handle *h, struct usb_id *p_id, unsigned ch
 	return 0;
 }
 
-int clear_dcd_ptr(struct libusb_device_handle *h, struct usb_id *p_id, unsigned char *p, unsigned char *file_start, unsigned cnt)
+int clear_dcd_ptr(struct libusb_device_handle *h, struct sdp_dev *p_id, unsigned char *p, unsigned char *file_start, unsigned cnt)
 {
 	int ret = 0;
 	switch (p_id->header_type) {
@@ -903,7 +903,7 @@ int clear_dcd_ptr(struct libusb_device_handle *h, struct usb_id *p_id, unsigned 
 //#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
 #endif
 
-int get_dl_start(struct usb_id *p_id, unsigned char *p, unsigned char *file_start, unsigned cnt, unsigned *dladdr, unsigned *max_length, unsigned *plugin, unsigned *header_addr)
+int get_dl_start(struct sdp_dev *p_id, unsigned char *p, unsigned char *file_start, unsigned cnt, unsigned *dladdr, unsigned *max_length, unsigned *plugin, unsigned *header_addr)
 {
 	unsigned char* file_end = file_start + cnt;
 	switch (p_id->header_type) {
@@ -945,10 +945,10 @@ int get_dl_start(struct usb_id *p_id, unsigned char *p, unsigned char *file_star
 	return 0;
 }
 
-int do_status(libusb_device_handle *h, struct usb_id *p_id);
+int do_status(libusb_device_handle *h, struct sdp_dev *p_id);
 
-int process_header(struct libusb_device_handle *h, struct usb_id *p_id,
-		struct usb_work *curr, unsigned char *buf, int cnt,
+int process_header(struct libusb_device_handle *h, struct sdp_dev *p_id,
+		struct sdp_work *curr, unsigned char *buf, int cnt,
 		unsigned *p_dladdr, unsigned *p_max_length, unsigned *p_plugin,
 		unsigned *p_header_addr)
 {
@@ -1005,7 +1005,7 @@ int process_header(struct libusb_device_handle *h, struct usb_id *p_id,
 	return header_offset;
 }
 
-int load_file(struct libusb_device_handle *h, struct usb_id *p_id,
+int load_file(struct libusb_device_handle *h, struct sdp_dev *p_id,
 		unsigned char *p, int cnt, unsigned char *buf, unsigned buf_cnt,
 		unsigned dladdr, unsigned fsize, unsigned char type, FILE* xfile)
 {
@@ -1115,7 +1115,7 @@ static const unsigned char statusCommand[]={5,5,0,0,0,0, 0, 0,0,0,0, 0,0,0,0, 0}
 #define FT_CSF	0xcc
 #define FT_DCD	0xee
 #define FT_LOAD_ONLY	0x00
-int DoIRomDownload(struct libusb_device_handle *h, struct usb_id *p_id, struct usb_work *curr, int verify)
+int DoIRomDownload(struct libusb_device_handle *h, struct sdp_dev *p_id, struct sdp_work *curr, int verify)
 {
 //							address, format, data count, data, type
 	static unsigned char jump_command[] = {0x0b,0x0b, V(0),  0x00, V(0x00000000), V(0), 0x00};
@@ -1302,7 +1302,7 @@ cleanup:
 	return ret;
 }
 
-int do_status(libusb_device_handle *h, struct usb_id *p_id)
+int do_status(libusb_device_handle *h, struct sdp_dev *p_id)
 {
 	int last_trans;
 	unsigned char tmp[64];
