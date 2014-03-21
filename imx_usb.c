@@ -227,7 +227,7 @@ void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr);
  * EP2IN - bulk in
  * (max packet size of 512 bytes)
  */
-int transfer(struct libusb_device_handle *h, int report, unsigned char *p, unsigned cnt, int* last_trans, struct usb_id *p_id)
+int transfer(struct libusb_device_handle *h, int report, unsigned char *p, unsigned cnt, int* last_trans, struct sdp_dev *p_id)
 {
 	int err;
 	if (cnt > p_id->max_transfer)
@@ -280,14 +280,15 @@ int transfer(struct libusb_device_handle *h, int report, unsigned char *p, unsig
 }
 
 
-libusb_device_handle * open_vid_pid(struct usb_id *p_id)
+libusb_device_handle * open_vid_pid(struct mach_id *mach, struct sdp_dev *p_id)
 {
 	int r = libusb_init(NULL);
 	int err;
 	libusb_device_handle *h;
-	h = libusb_open_device_with_vid_pid(NULL, p_id->vid, p_id->pid);
+	h = libusb_open_device_with_vid_pid(NULL, mach->vid, mach->pid);
 	if (!h) {
-		printf("%s:Could not open device vid=0x%x pid=0x%x\n", __func__, p_id->vid, p_id->pid);
+		printf("%s:Could not open device vid=0x%x pid=0x%x\n", __func__,
+				mach->vid, mach->pid);
 		goto err1;
 	}
 	if (libusb_kernel_driver_active(h, 0))
@@ -313,7 +314,7 @@ err1:
 
 int main(int argc, char const *const argv[])
 {
-	struct usb_id *p_id;
+	struct sdp_dev *p_id;
 	struct mach_id *mach;
 	libusb_device **devs;
 	libusb_device *dev;
@@ -324,11 +325,12 @@ int main(int argc, char const *const argv[])
 	libusb_device_handle *h = NULL;
 	int config = 0;
 	int verify = 0;
-	struct usb_work w[10];
-	struct usb_work *curr;
+	struct sdp_work w[10];
+	struct sdp_work *curr;
 	int i = 1;
 	int w_index = -1;
 
+	// Get list of machines...
 	struct mach_id *list = parse_imx_conf("imx_usb.conf",argc,argv);
 	if (!list)
 		goto out;
@@ -351,14 +353,16 @@ int main(int argc, char const *const argv[])
 
 	if (!h)
 		goto out;
-	p_id = parse_conf(mach->file_name,argc,argv);
-	p_id->vid = mach->vid;
-	p_id->pid = mach->pid;
 
+	// Get machine specific configuration file..
+	p_id = parse_conf(mach->file_name,argc,argv);
 	if (!p_id)
 		goto out;
+
 	libusb_get_configuration(h, &config);
-	printf("%04x:%04x(%s) bConfigurationValue =%x\n", p_id->vid, p_id->pid, p_id->name, config);
+	printf("%04x:%04x(%s) bConfigurationValue =%x\n",
+			mach->vid, mach->pid, p_id->name, config);
+
 	if (libusb_kernel_driver_active(h, 0))
 		 libusb_detach_kernel_driver(h, 0);
 
@@ -422,7 +426,7 @@ int main(int argc, char const *const argv[])
 			printf("too many files\n");
 			exit(1);
 		}
-		memset(&w[w_index], 0, sizeof(struct usb_work));
+		memset(&w[w_index], 0, sizeof(struct sdp_work));
 		if (w_index == 0) {
 			w[w_index].dcd = 1;
 			w[w_index].plug = 1;
@@ -458,7 +462,7 @@ int main(int argc, char const *const argv[])
 				printf("sleeping\n");
 				sleep(3);
 				printf("done sleeping\n");
-				h = open_vid_pid(p_id);
+				h = open_vid_pid(mach, p_id);
 				if (h)
 					break;
 			}

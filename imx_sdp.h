@@ -36,9 +36,9 @@ struct mem_work {
 	unsigned vals[3];
 };
 
-struct usb_work;
-struct usb_work {
-	struct usb_work *next;
+struct sdp_work;
+struct sdp_work {
+	struct sdp_work *next;
 	struct mem_work *mem;
 	unsigned char filename[256];
 	unsigned char dcd;
@@ -53,9 +53,7 @@ struct usb_work {
 	unsigned load_size;
 };
 
-struct usb_id {
-	unsigned short vid;
-	unsigned short pid;
+struct sdp_dev {
 	unsigned char name[64];
 	unsigned short max_transfer;
 #define MODE_HID	0
@@ -66,7 +64,7 @@ struct usb_id {
 #define HDR_MX53	2
 	unsigned char header_type;
 	struct ram_area ram[8];
-	struct usb_work *work;
+	struct sdp_work *work;
 };
 
 int get_val(const char** pp, int base);
@@ -74,9 +72,9 @@ const unsigned char *move_string(unsigned char *dest, const unsigned char *src, 
 
 char const *conf_file_name(char const *base, int argc, char const * const *argv);
 
-struct usb_id *parse_conf(const char *filename, int argc, char const * const *argv);
+struct sdp_dev *parse_conf(const char *filename, int argc, char const * const *argv);
 
-int DoIRomDownload(struct libusb_device_handle *h, struct usb_id *p_id, struct usb_work *curr, int verify);
+int DoIRomDownload(struct libusb_device_handle *h, struct sdp_dev *p_id, struct sdp_work *curr, int verify);
 
 
 #endif /* __IMX_SDP_H__ */
