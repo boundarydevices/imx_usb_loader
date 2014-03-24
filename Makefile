@@ -4,15 +4,18 @@ BUILDHOST := $(shell uname -s)
 BUILDHOST := $(patsubst CYGWIN_%,CYGWIN,$(BUILDHOST))
 
 ifneq ($(BUILDHOST),CYGWIN)
-CFLAGS = `pkg-config --cflags libusb-1.0`
+USBCFLAGS = `pkg-config --cflags libusb-1.0`
 LDFLAGS = `pkg-config --libs libusb-1.0`
 else
-CFLAGS = -I/usr/include/libusb-1.0
-CFLAGS = -L/usr/lib -lusb-1.0
+USBCFLAGS = -I/usr/include/libusb-1.0
+USBCFLAGS = -L/usr/lib -lusb-1.0
 endif
 
 %.o : %.cpp
 	$(CC) -c $*.cpp -o $@ -Wno-trigraphs -pipe -ggdb -Wall $(CFLAGS)
+
+imx_usb.o : imx_usb.c
+	$(CC) -c $*.c -o $@ -Wstrict-prototypes -Wno-trigraphs -pipe -ggdb $(USBCFLAGS) $(CFLAGS)
 
 %.o : %.c
 	$(CC) -c $*.c -o $@ -Wstrict-prototypes -Wno-trigraphs -pipe -ggdb $(CFLAGS)
