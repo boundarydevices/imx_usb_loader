@@ -32,6 +32,14 @@
 
 #include "imx_sdp.h"
 
+#define DEBUG
+
+#ifdef DEBUG
+#define dbg_printf(fmt, args...)	fprintf(stderr, fmt, ## args)
+#else
+#define dbg_printf(fmt, args...)    /* Don't do anything in release builds */
+#endif
+
 #define get_min(a, b) (((a) < (b)) ? (a) : (b))
 
 int get_val(const char** pp, int base)
@@ -98,17 +106,18 @@ char const *conf_file_name
 		if (e)
 			e[1] = 0;
 	} else {
-		printf("No \"_\" environment variable\n");
-		printf("argc == %d, argv == %p\n", argc, argv);
+		dbg_printf("No \"_\" environment variable\n");
+		dbg_printf("argc == %d, argv == %p\n", argc, argv);
 		strcpy(conf_path,argv[0]);
-		printf("base == %p:%s\n", conf_path, conf_path);
+		dbg_printf("base == %p:%s\n", conf_path, conf_path);
 		e = strrchr(conf_path,'/');
 		if (e) {
-			printf( "trailing slash == %p:%s\n", e, e);
+			dbg_printf( "trailing slash == %p:%s\n", e, e);
 			e[1] = 0;
-			printf( "conf_path == %s\n", conf_path);
-		} else
-			printf( "no trailing slash\n");
+			dbg_printf( "conf_path == %s\n", conf_path);
+		} else {
+			dbg_printf( "no trailing slash\n");
+		}
 	}
 	strcat(conf_path, base);
 	printf("config file <%s>\n", conf_path);
