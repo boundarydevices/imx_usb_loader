@@ -342,15 +342,12 @@ int main(int argc, char const *const argv[])
 	libusb_device *dev;
 	int r;
 	int err;
-	int ret=1;
 	ssize_t cnt;
 	libusb_device_handle *h = NULL;
 	int config = 0;
 	int verify = 0;
-	struct sdp_work w[10];
 	struct sdp_work *curr;
-	int i = 1;
-	int w_index = -1;
+	struct sdp_work *cmd_head;
 
 	// Get list of machines...
 	struct mach_id *list = parse_imx_conf("imx_usb.conf",argc,argv);
@@ -407,66 +404,16 @@ int main(int argc, char const *const argv[])
 		printf("status failed\n");
 		goto out;
 	}
-	curr = p_id->work;
-	while (argc > i) {
-		const char *p = argv[i];
-		if (*p == '-') {
-			char c;
-			p++;
-			c = *p++;
-			if (c == 'v') {
-				verify = 1;
-				i++;
-				continue;
-			}
-			if (w_index < 0) {
-				printf("specify file first\n");
-				exit(1);
-			}
-			if (!*p) {
-				i++;
-				p = argv[i];
-			}
-			if (c == 's') {
-				w[w_index].load_size = get_val(&p, 10);
-				if (!w[w_index].load_addr)
-					w[w_index].load_addr = 0x10800000;
-				w[w_index].plug = 0;
-				w[w_index].jump_mode = 0;
-				i++;
-				continue;
-			}
-			if (c == 'l') {
-				w[w_index].load_addr = get_val(&p, 16);
-				w[w_index].plug = 0;
-				w[w_index].jump_mode = 0;
-				i++;
-				continue;
-			}
-			printf("Unknown option %s\n", p);
-			exit(1);
 
-		}
-		if (w_index >= 0) {
-			w[w_index].jump_mode = 0;
-			w[w_index].next = &w[w_index + 1];
-		}
-		w_index++;
-		if (w_index > ARRAY_SIZE(w)) {
-			printf("too many files\n");
-			exit(1);
-		}
-		memset(&w[w_index], 0, sizeof(struct sdp_work));
-		if (w_index == 0) {
-			w[w_index].dcd = 1;
-			w[w_index].plug = 1;
-		}
-		w[w_index].jump_mode = J_HEADER;
-		strncpy(w[w_index].filename, argv[i], sizeof(w[w_index].filename) - 1);
-		i++;
-	}
-	if (w_index >= 0)
-		curr = &w[0];
+	// By default, use work from config file...
+	curr = p_id->work;
+
+	// Parse command line, use work from command line if available
+	cmd_head = parse_cmd_args(argc - 1, &argv[1], &verify);
+
+	if (cmd_head != NULL)
+		curr = cmd_head;
+
 	while (curr) {
 		if (curr->mem)
 			perform_mem_work(p_id, curr->mem);
@@ -478,7 +425,7 @@ int main(int argc, char const *const argv[])
 			err = do_status(p_id);
 			break;
 		}
-		if (!curr->next && (!curr->plug || (w_index != 0)))
+		if (!curr->next && (!curr->plug || curr != cmd_head))
 			break;
 		err = do_status(p_id);
 		printf("jump_mode %x plug=%i err=%i\n", curr->jump_mode, curr->plug, err);
@@ -499,18 +446,18 @@ int main(int argc, char const *const argv[])
 			if (!h)
 				goto out;
 		}
-		if ((w_index == 0) && curr->plug) {
+		if (curr == cmd_head && curr->plug) {
 			curr->plug = 0;
 			continue;
 		}
 		curr = curr->next;
 	}
-	ret = 0;
+
 exit:
 	libusb_release_interface(h, 0);
 out:
 	if (h)
 		libusb_close(h);
 	libusb_exit(NULL);
-	return ret;
+	return 0;
 }

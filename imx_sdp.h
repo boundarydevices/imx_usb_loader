@@ -73,8 +73,8 @@ const unsigned char *move_string(unsigned char *dest, const unsigned char *src, 
 void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr);
 
 char const *conf_file_name(char const *base, int argc, char const * const *argv);
-
 struct sdp_dev *parse_conf(const char *filename, int argc, char const * const *argv);
+struct sdp_work *parse_cmd_args(int argc, char const * const *argv, int *verify);
 
 int perform_mem_work(struct sdp_dev *dev, struct mem_work *mem);
 int do_status(struct sdp_dev *dev);

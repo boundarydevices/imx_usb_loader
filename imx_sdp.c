@@ -364,6 +364,90 @@ struct sdp_dev *parse_conf(const char *filename, int argc, char const * const *a
 	return usb;
 }
 
+struct sdp_work *parse_cmd_args(int argc, char const * const *argv, int *verify)
+{
+	int i = 0;
+	struct sdp_work *prev = NULL;
+	struct sdp_work *w = NULL;
+	struct sdp_work *head = NULL;
+
+	while (argc > i) {
+		const char *p = argv[i];
+		if (*p == '-') {
+			char c;
+			p++;
+			c = *p++;
+			if (c == 'v') {
+				*verify = 1;
+				i++;
+				continue;
+			}
+			if (w == NULL) {
+				printf("specify file first\n");
+				exit(1);
+			}
+			if (!*p) {
+				i++;
+				p = argv[i];
+			}
+			if (c == 's') {
+				w->load_size = get_val(&p, 10);
+				if (!w->load_addr)
+					w->load_addr = 0x10800000;
+				w->plug = 0;
+				w->jump_mode = 0;
+				i++;
+				continue;
+			}
+			if (c == 'l') {
+				w->load_addr = get_val(&p, 16);
+				w->plug = 0;
+				w->jump_mode = 0;
+				i++;
+				continue;
+			}
+			printf("Unknown option %s\n", p);
+			exit(1);
+		}
+
+		// Initialize work structure..
+		w = malloc(sizeof(struct sdp_work));
+		memset(w, 0, sizeof(struct sdp_work));
+		strncpy(w->filename, argv[i], sizeof(w->filename) - 1);
+
+		if (head == NULL) {
+			// Special settings for first work...
+			w->dcd = 1;
+			w->plug = 1;
+			w->jump_mode = J_HEADER;
+			head = w;
+		}
+
+		if (prev != NULL)
+			prev->next = w;
+		prev = w;
+
+		i++;
+	}
+
+	return head;
+}
+
+void print_sdp_work(struct sdp_work *curr)
+{
+	printf("== work item\n");
+	printf("filename %s\n", curr->filename);
+	printf("load_size %d bytes\n", curr->load_size);
+	printf("load_addr 0x%08x\n", curr->load_addr);
+	printf("dcd %u\n", curr->dcd);
+	printf("clear_dcd %u\n", curr->clear_dcd);
+	printf("plug %u\n", curr->plug);
+	printf("jump_mode %d\n", curr->jump_mode);
+	printf("jump_addr 0x%08x\n", curr->jump_addr);
+	printf("== end work item\n");
+	return;
+}
+
 long get_file_size(FILE *xfile)
 {
 	long size;
@@ -1184,9 +1268,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 	unsigned transferSize=0;
 	int retry = 0;
 
-	printf("%s %x %x %x %x %x %x\n", curr->filename, curr->load_size,
-			curr->load_addr, curr->dcd, curr->clear_dcd,
-			curr->plug, curr->jump_mode);
+	print_sdp_work(curr);
 	xfile = fopen(curr->filename, "rb" );
 	if (!xfile) {
 		printf("\r\nerror, can not open input file: %s\r\n", curr->filename);
