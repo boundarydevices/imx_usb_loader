@@ -222,7 +222,8 @@ static libusb_device *find_imx_dev(libusb_device **devs, struct mach_id **pp_id,
  *  (max size of 65 bytes with 1st byte of 0x04)
  *
  */
-int transfer_hid(struct sdp_dev *dev, int report, unsigned char *p, unsigned cnt, int* last_trans)
+int transfer_hid(struct sdp_dev *dev, int report, unsigned char *p, unsigned int cnt,
+		unsigned int expected, int* last_trans)
 {
 	int err;
 	struct libusb_device_handle *h = (struct libusb_device_handle *)dev->priv;
@@ -250,6 +251,8 @@ int transfer_hid(struct sdp_dev *dev, int report, unsigned char *p, unsigned cnt
 		*last_trans = 0;
 		memset(&tmp[1], 0, cnt);
 		err = libusb_interrupt_transfer(h, 1 + EP_IN, tmp, cnt + 1, last_trans, 1000);
+		printf("libusb_interrupt_transfer, err=%d, trans=%d\n", err,
+				*last_trans);
 		if (err >= 0) {
 			if (tmp[0] == (unsigned char)report)
 				if (*last_trans > 1) {
@@ -281,7 +284,8 @@ int transfer_hid(struct sdp_dev *dev, int report, unsigned char *p, unsigned cnt
  * (max packet size of 512 bytes)
  */
 
-int transfer_bulk(struct sdp_dev *dev, int report, unsigned char *p, unsigned cnt, int* last_trans)
+int transfer_bulk(struct sdp_dev *dev, int report, unsigned char *p, unsigned int cnt,
+		unsigned int expected, int* last_trans)
 {
 	int err;
 	struct libusb_device_handle *h = (struct libusb_device_handle *)dev->priv;

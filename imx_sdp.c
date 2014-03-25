@@ -32,8 +32,6 @@
 
 #include "imx_sdp.h"
 
-#define DEBUG
-
 #ifdef DEBUG
 #define dbg_printf(fmt, args...)	fprintf(stderr, fmt, ## args)
 #else
@@ -514,7 +512,7 @@ static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, 
 	read_reg_command[9] = (unsigned char)(cnt >> 8);
 	read_reg_command[10] = (unsigned char)(cnt);
 	for (;;) {
-		err = dev->transfer(dev, 1, read_reg_command, 16, &last_trans);
+		err = dev->transfer(dev, 1, read_reg_command, 16, 0, &last_trans);
 		if (!err)
 			break;
 		printf("read_reg_command err=%i, last_trans=%i\n", err, last_trans);
@@ -523,7 +521,7 @@ static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, 
 		}
 		retry++;
 	}
-	err = dev->transfer(dev, 3, tmp, 4, &last_trans);
+	err = dev->transfer(dev, 3, tmp, 4, 4, &last_trans);
 	if (err) {
 		printf("r3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
 		return err;
@@ -531,7 +529,7 @@ static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, 
 	rem = cnt;
 	while (rem) {
 		tmp[0] = tmp[1] = tmp[2] = tmp[3] = 0;
-		err = dev->transfer(dev, 4, tmp, 64, &last_trans);
+		err = dev->transfer(dev, 4, tmp, 64, rem > 64 ? 64 : rem, &last_trans);
 		if (err) {
 			printf("r4 in err=%i, last_trans=%i  %02x %02x %02x %02x cnt=%d rem=%d\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3], cnt, rem);
 			break;
@@ -570,8 +568,9 @@ static int write_memory(struct sdp_dev *dev, unsigned addr, unsigned val)
 	write_reg_command[12] = (unsigned char)(val >> 16);
 	write_reg_command[13] = (unsigned char)(val >> 8);
 	write_reg_command[14] = (unsigned char)(val);
+
 	for (;;) {
-		err = dev->transfer(dev, 1, write_reg_command, 16, &last_trans);
+		err = dev->transfer(dev, 1, write_reg_command, 16, 0, &last_trans);
 		if (!err)
 			break;
 		printf("write_reg_command err=%i, last_trans=%i\n", err, last_trans);
@@ -580,9 +579,10 @@ static int write_memory(struct sdp_dev *dev, unsigned addr, unsigned val)
 		}
 		retry++;
 	}
+
 	memset(tmp, 0, sizeof(tmp));
-	err = dev->transfer(dev, 3, tmp, sizeof(tmp), &last_trans);
-	if (0) printf("err=%i, last_trans=%i  %02x %02x %02x %02x  %02x %02x %02x %02x\n",
+	err = dev->transfer(dev, 3, tmp, sizeof(tmp), 4, &last_trans);
+	dbg_printf("report 3, err=%i, last_trans=%i  %02x %02x %02x %02x  %02x %02x %02x %02x\n",
 			err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3],
 			tmp[4], tmp[5], tmp[6], tmp[7]);
 	if (err) {
@@ -590,8 +590,8 @@ static int write_memory(struct sdp_dev *dev, unsigned addr, unsigned val)
 		printf("addr=0x%08x, val=0x%08x\n", addr, val);
 	}
 	memset(tmp, 0, sizeof(tmp));
-	err = dev->transfer(dev, 4, tmp, sizeof(tmp), &last_trans);
-	if (0) printf("err=%i, last_trans=%i  %02x %02x %02x %02x  %02x %02x %02x %02x\n",
+	err = dev->transfer(dev, 4, tmp, sizeof(tmp), 4, &last_trans);
+	dbg_printf("report 4, err=%i, last_trans=%i  %02x %02x %02x %02x  %02x %02x %02x %02x\n",
 			err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3],
 			tmp[4], tmp[5], tmp[6], tmp[7]);
 	if (err)
@@ -942,7 +942,7 @@ int perform_dcd(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start
 	{
 		struct old_app_header *ohdr = (struct old_app_header *)p;
 		ret = write_dcd_table_old(dev, ohdr, file_start, cnt);
-		printf("dcd_ptr=0x%08x\n", ohdr->dcd_ptr);
+		dbg_printf("dcd_ptr=0x%08x\n", ohdr->dcd_ptr);
 #if 1
 		ohdr->dcd_ptr = 0;
 #endif
@@ -954,7 +954,7 @@ int perform_dcd(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start
 	{
 		struct ivt_header *hdr = (struct ivt_header *)p;
 		ret = write_dcd_table_ivt(dev, hdr, file_start, cnt);
-		printf("dcd_ptr=0x%08x\n", hdr->dcd_ptr);
+		dbg_printf("dcd_ptr=0x%08x\n", hdr->dcd_ptr);
 #if 1
 		hdr->dcd_ptr = 0;
 #endif
@@ -1045,16 +1045,13 @@ int do_status(struct sdp_dev *dev)
 	int err;
 	int cnt = 64;
 
-	if (dev->mode == MODE_HID)
-		cnt = 4;
-
 	for (;;) {
-		err = dev->transfer(dev, 1, (unsigned char*)statusCommand, 16, &last_trans);
+		err = dev->transfer(dev, 1, (unsigned char*)statusCommand, 16, 0, &last_trans);
 		printf("report 1, wrote %i bytes, err=%i\n", last_trans, err);
 		memset(tmp, 0, sizeof(tmp));
 
 
-		err = dev->transfer(dev, 3, tmp, cnt, &last_trans);
+		err = dev->transfer(dev, 3, tmp, cnt, 4, &last_trans);
 		printf("report 3, read %i bytes, err=%i\n", last_trans, err);
 		printf("read=%02x %02x %02x %02x\n", tmp[0], tmp[1], tmp[2], tmp[3]);
 		if (!err)
@@ -1064,7 +1061,7 @@ int do_status(struct sdp_dev *dev)
 			break;
 	}
 	if (dev->mode == MODE_HID) {
-		err = dev->transfer(dev, 4, tmp, cnt, &last_trans);
+		err = dev->transfer(dev, 4, tmp, cnt, 4, &last_trans);
 		printf("report 4, read %i bytes, err=%i\n", last_trans, err);
 		printf("read=%02x %02x %02x %02x\n", tmp[0], tmp[1], tmp[2], tmp[3]);
 	}
@@ -1153,7 +1150,7 @@ int load_file(struct sdp_dev *dev,
 	dlCommand[15] =  type;
 
 	for (;;) {
-		err = dev->transfer(dev, 1, dlCommand, 16, &last_trans);
+		err = dev->transfer(dev, 1, dlCommand, 16, 0, &last_trans);
 		if (!err)
 			break;
 		printf("dlCommand err=%i, last_trans=%i\n", err, last_trans);
@@ -1163,7 +1160,7 @@ int load_file(struct sdp_dev *dev,
 	}
 	retry = 0;
 	if (dev->mode == MODE_BULK) {
-		err = dev->transfer(dev, 3, tmp, sizeof(tmp), &last_trans);
+		err = dev->transfer(dev, 3, tmp, sizeof(tmp), 4, &last_trans);
 		if (err)
 			printf("in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
 	}
@@ -1175,7 +1172,7 @@ int load_file(struct sdp_dev *dev,
 			break;
 		retry = 0;
 		while (cnt) {
-			err = dev->transfer(dev, 2, p, get_min(cnt, max), &last_trans);
+			err = dev->transfer(dev, 2, p, get_min(cnt, max), 0, &last_trans);
 //			printf("err=%i, last_trans=0x%x, cnt=0x%x, max=0x%x\n", err, last_trans, cnt, max);
 			if (err) {
 				printf("out err=%i, last_trans=%i cnt=0x%x max=0x%x transferSize=0x%X retry=%i\n", err, last_trans, cnt, max, transferSize, retry);
@@ -1187,8 +1184,6 @@ int load_file(struct sdp_dev *dev,
 					max >>= 1;
 				else
 					max <<= 1;
-//				err = dev->transfer(dev, 3, tmp, sizeof(tmp), &last_trans);
-//				printf("in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
 				usleep(10000);
 				retry++;
 				continue;
@@ -1217,16 +1212,13 @@ int load_file(struct sdp_dev *dev,
 	}
 	printf("\r\n<<<%i, %i bytes>>>\r\n", fsize, transferSize);
 	if (dev->mode == MODE_HID) {
-		err = dev->transfer(dev, 3, tmp, sizeof(tmp), &last_trans);
+		err = dev->transfer(dev, 3, tmp, sizeof(tmp), 4, &last_trans);
 		if (err)
-			printf("3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-		err = dev->transfer(dev, 4, tmp, sizeof(tmp), &last_trans);
+			printf("report 3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+		err = dev->transfer(dev, 4, tmp, sizeof(tmp), 4, &last_trans);
 		if (err)
-			printf("4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+			printf("report 4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
 	} else {
-//		err = dev->transfer(dev, 3, tmp, sizeof(tmp), &last_trans);
-//		if (err)
-//			printf("3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
 		do_status(dev);
 	}
 	return transferSize;
@@ -1396,7 +1388,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		//Any command will initiate jump for mx51, jump address is ignored by mx51
 		retry = 0;
 		for (;;) {
-			err = dev->transfer(dev, 1, jump_command, 16, &last_trans);
+			err = dev->transfer(dev, 1, jump_command, 16, 0, &last_trans);
 			if (!err)
 				break;
 			printf("jump_command err=%i, last_trans=%i\n", err, last_trans);
@@ -1406,12 +1398,12 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 			retry++;
 		}
 		memset(tmp, 0, sizeof(tmp));
-		err = dev->transfer(dev, 3, tmp, sizeof(tmp), &last_trans);
+		err = dev->transfer(dev, 3, tmp, sizeof(tmp), 4, &last_trans);
 		if (err)
 			printf("j3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
 		if (0) if (dev->mode == MODE_HID) {
 			memset(tmp, 0, sizeof(tmp));
-			err = dev->transfer(dev, 4, tmp, sizeof(tmp), &last_trans);
+			err = dev->transfer(dev, 4, tmp, sizeof(tmp), 4, &last_trans);
 			printf("j4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
 		}
 	}
