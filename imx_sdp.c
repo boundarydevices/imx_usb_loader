@@ -1040,6 +1040,7 @@ int do_status(struct sdp_dev *dev)
 	static const unsigned char statusCommand[]={5,5,0,0,0,0, 0, 0,0,0,0, 0,0,0,0, 0};
 
 	int last_trans;
+	unsigned int *hab_security;
 	unsigned char tmp[64];
 	int retry = 0;
 	int err;
@@ -1047,23 +1048,28 @@ int do_status(struct sdp_dev *dev)
 
 	for (;;) {
 		err = dev->transfer(dev, 1, (unsigned char*)statusCommand, 16, 0, &last_trans);
-		printf("report 1, wrote %i bytes, err=%i\n", last_trans, err);
+		dbg_printf("report 1, wrote %i bytes, err=%i\n", last_trans, err);
 		memset(tmp, 0, sizeof(tmp));
 
 
 		err = dev->transfer(dev, 3, tmp, cnt, 4, &last_trans);
-		printf("report 3, read %i bytes, err=%i\n", last_trans, err);
-		printf("read=%02x %02x %02x %02x\n", tmp[0], tmp[1], tmp[2], tmp[3]);
+		dbg_printf("report 3, read %i bytes, err=%i\n", last_trans, err);
+		dbg_printf("read=%02x %02x %02x %02x\n", tmp[0], tmp[1], tmp[2], tmp[3]);
 		if (!err)
 			break;
 		retry++;
 		if (retry > 5)
 			break;
 	}
+
+	hab_security = (unsigned int *)tmp;
+	printf("HAB security state: %s (0x%08x)\n", *hab_security == 0x12343412 ?
+			"production mode" : "development mode", *hab_security);
+
 	if (dev->mode == MODE_HID) {
 		err = dev->transfer(dev, 4, tmp, cnt, 4, &last_trans);
-		printf("report 4, read %i bytes, err=%i\n", last_trans, err);
-		printf("read=%02x %02x %02x %02x\n", tmp[0], tmp[1], tmp[2], tmp[3]);
+		dbg_printf("report 4, read %i bytes, err=%i\n", last_trans, err);
+		dbg_printf("read=%02x %02x %02x %02x\n", tmp[0], tmp[1], tmp[2], tmp[3]);
 	}
 	return err;
 }
@@ -1132,6 +1138,7 @@ int load_file(struct sdp_dev *dev,
 {
 //							address, format, data count, data, type
 	static unsigned char dlCommand[] =    {0x04,0x04, V(0),  0x00, V(0x00000020), V(0), 0xaa};
+	unsigned int *status;
 	int last_trans, err;
 	int retry = 0;
 	unsigned transferSize=0;
@@ -1218,6 +1225,11 @@ int load_file(struct sdp_dev *dev,
 		err = dev->transfer(dev, 4, tmp, sizeof(tmp), 4, &last_trans);
 		if (err)
 			printf("report 4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+		status = (unsigned int*)tmp;
+		if (*status == 0x88888888UL)
+			printf("succeeded (status 0x%08x)\n", *status);
+		else
+			printf("failed (status 0x%08x)\n", *status);
 	} else {
 		do_status(dev);
 	}
