@@ -64,7 +64,16 @@ struct sdp_dev {
 	unsigned char header_type;
 	struct ram_area ram[8];
 	struct sdp_work *work;
-	int (*transfer)(struct sdp_dev *dev, int report, unsigned char *p, unsigned cnt, int* last_trans);
+	/*
+	 * dev - SDP devce (this structure)
+	 * report - HID Report
+	 * p - pointer to buffer
+	 * size - size of buffer (used for send and USB receive length)
+	 * expected - the expected amount of data (used for UART receive)
+	 * last_trans - the actually transfered bytes
+	 */
+	int (*transfer)(struct sdp_dev *dev, int report, unsigned char *p, unsigned int size,
+			unsigned int expected, int* last_trans);
 	void *priv;
 };
 

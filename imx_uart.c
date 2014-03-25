@@ -40,29 +40,42 @@
 
 #define get_min(a, b) (((a) < (b)) ? (a) : (b))
 
-int transfer_uart(struct sdp_dev *dev, int report, unsigned char *p, unsigned cnt, int* last_trans)
+int transfer_uart(struct sdp_dev *dev, int report, unsigned char *p, unsigned size,
+		unsigned int expected, int* last_trans)
 {
-	int err = 0;
 	int fd = *(int *)dev->priv;
 
 	if (report < 3) {
-		*last_trans = write(fd, p, cnt);
+		*last_trans = write(fd, p, size);
 	} else {
-		*last_trans = read(fd, p, cnt);
+		// Read...
+		int ret;
+		*last_trans = 0;
+		while (*last_trans < expected)
+		{
+			ret = read(fd, p, expected - *last_trans);
+			if (ret < 0)
+				return ret;
+
+			// err is transfered bytes...
+			*last_trans += ret;
+			p += ret;
+		}
 	}
 
-	return err;
+	return 0;
 }
 
 int connect_uart(int *uart_fd, int argc, char const *const argv[])
 {
-	int err = 0;
-	int count, i;
+	int err = 0, count = 0;
+	int i;
 	int flags = O_RDWR | O_NOCTTY | O_SYNC;
 	struct termios key;
 	struct serial_struct ser_info; 
 	char magic[] = { 0x23, 0x45, 0x45, 0x23 };
 	char magic_response[4];
+	char *buf;
 	memset(&key,0,sizeof(key));
 	memset(&magic_response,0,sizeof(magic_response));
 
@@ -94,15 +107,21 @@ int connect_uart(int *uart_fd, int argc, char const *const argv[])
 	printf("starting associating phase\n");
 	write(*uart_fd, magic, sizeof(magic));
 	
-	count = read(*uart_fd, &magic_response, sizeof(magic_response));
+	buf = magic_response;
+	while (count < 4) {
+		err = read(*uart_fd, buf, 4 - count);
 
-	if (count < 0) {
-		fprintf(stderr, "magic timeout, make sure the device is in "
-			       "recovery mode\n");
-		return -1;
+		if (err < 0) {
+			fprintf(stderr, "magic timeout, make sure the device "
+			       "is in recovery mode\n");
+			return err;
+		}
+
+		count += err;
+		buf += err;
 	}
+	err = 0;
 
-	printf("count: %d\n", count);
 	for (i = 0; i < sizeof(magic); i++) {
 		if (magic[i] != magic_response[i]) {
 			fprintf(stderr, "magic missmatch, response was 0x%08x\n",
