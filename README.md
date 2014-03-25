@@ -39,7 +39,9 @@ However, parameters can also specified manually, e.g.
 ./imx_usb u-boot.imx -l0x3f400400 -s370796 -v
 ```
 
-To use the serial link, use the imx_uart utilty:
+The UART link uses hardware flow control using RTS/CTS, so make sure
+those are available. The imx_uart utilty will configure the target
+tty with the right baud rate (115200) and flow control settings:
 
 ```
 ./imx_uart /dev/ttyUSB0 vybrid_usb_work.conf u-boot.imx

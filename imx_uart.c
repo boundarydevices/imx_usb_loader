@@ -87,7 +87,7 @@ int connect_uart(int *uart_fd, int argc, char const *const argv[])
 
 	/* 8 data bits */
 	key.c_cflag |= CS8;
-	key.c_cflag |= CLOCAL | CREAD;
+	key.c_cflag |= CLOCAL | CREAD | CRTSCTS;
 	key.c_cflag |= B115200;
 
 	/* Enable blocking read, 0.5s timeout.. */
