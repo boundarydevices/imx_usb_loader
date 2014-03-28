@@ -1,9 +1,9 @@
 all: imx_usb imx_uart
 
 DESTDIR ?= ""
-sysconfdir ?= "/etc"
 prefix ?= "/usr"
 bindir ?= "$(prefix)/bin"
+sysconfdir ?= "$(prefix)/etc"
 
 BUILDHOST := $(shell uname -s)
 BUILDHOST := $(patsubst CYGWIN_%,CYGWIN,$(BUILDHOST))
