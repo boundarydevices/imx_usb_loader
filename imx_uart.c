@@ -148,6 +148,7 @@ int main(int argc, char const *const argv[])
 	int uart_fd;
 	struct sdp_work *curr;
 	struct sdp_work *cmd_head;
+	char const *conf;
 
 	if (argc < 3) {
 		fprintf(stderr, "usage: imx_uart [uart] [config]\n");
@@ -160,7 +161,11 @@ int main(int argc, char const *const argv[])
 		goto out;
 
 	// Get machine specific configuration file..
-	p_id = parse_conf(argv[2], argc, argv);
+	conf = conf_file_name(argv[2], get_base_path(argv[0]), "/etc/imx-loader.d/");
+	if (conf == NULL)
+		goto out;
+
+	p_id = parse_conf(conf);
 	if (!p_id)
 		goto out;
 	p_id->transfer = &transfer_uart;

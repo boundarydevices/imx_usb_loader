@@ -90,39 +90,58 @@ const unsigned char *move_string(unsigned char *dest, const unsigned char *src, 
 	return src;
 }
 
-char const *conf_file_name
-	(char const *base,
-	 int argc,
-	 char const * const *argv)
+char const *get_base_path(char const *argv0)
 {
-	static char conf_path[512];
+	static char base_path[512];
 	char *e;
-	e = getenv("_");
+
+	strncpy(base_path, argv0, sizeof(base_path));
+	e = strrchr(base_path, '/');
 	if (e) {
-		strcpy(conf_path,e);
-		e = strrchr(conf_path,'/');
-		if (e)
-			e[1] = 0;
+		dbg_printf( "trailing slash == %p:%s\n", e, e);
+		e[1] = 0;
 	} else {
-		dbg_printf("No \"_\" environment variable\n");
-		dbg_printf("argc == %d, argv == %p\n", argc, argv);
-		strcpy(conf_path,argv[0]);
-		dbg_printf("base == %p:%s\n", conf_path, conf_path);
-		e = strrchr(conf_path,'/');
-		if (e) {
-			dbg_printf( "trailing slash == %p:%s\n", e, e);
-			e[1] = 0;
-			dbg_printf( "conf_path == %s\n", conf_path);
-		} else {
-			dbg_printf( "no trailing slash\n");
-		}
+		dbg_printf( "no trailing slash\n");
 	}
-	strcat(conf_path, base);
-	printf("config file <%s>\n", conf_path);
-	return conf_path;
+
+	return base_path;
 }
 
-const char *skip(const char *p, char c)
+char const *conf_path_ok(char const *conf_path, char const *conf_file)
+{
+	static char conf[512];
+
+	strncpy(conf, conf_path, sizeof(conf));
+	strncat(conf, conf_file, sizeof(conf));
+	if (access(conf, R_OK) != -1) {
+		printf("config file <%s>\n", conf);
+		return conf;
+	}
+	return NULL;
+}
+
+char const *conf_file_name(char const *file, char const *base_path, char const *conf_path)
+{
+	char const *conf;
+	char *e;
+
+	// First priority, base path, relative path of binary...
+	dbg_printf("checking with base_path %s\n", base_path);
+	conf = conf_path_ok(base_path, file);
+	if (conf != NULL)
+		return conf;
+
+	// Second priority, conf path... (either -c, binary or /etc/imx-loader.d/)
+	dbg_printf("checking with conf_path %s\n", base_path);
+	conf = conf_path_ok(conf_path, file);
+	if (conf != NULL)
+		return conf;
+
+	printf("%s not found\n", file);
+	return NULL;
+}
+
+char const *skip(const char *p, char c)
 {
 	while (*p==' ') p++;
 	if (*p == c) {
@@ -297,7 +316,7 @@ void parse_transfer_type(struct sdp_dev *usb, const char *filename, const char *
 	}
 }
 
-struct sdp_dev *parse_conf(const char *filename, int argc, char const * const *argv)
+struct sdp_dev *parse_conf(const char *filename)
 {
 	char line[512];
 	FILE *xfile;
@@ -309,7 +328,7 @@ struct sdp_dev *parse_conf(const char *filename, int argc, char const * const *a
 		return NULL;
 	memset(usb, 0, sizeof(struct sdp_dev));
 
-	xfile = fopen(conf_file_name(filename,argc,argv), "rb" );
+	xfile = fopen(filename, "rb" );
 	if (!xfile) {
 		printf("Could not open file: {%s}\n", filename);
 		free(usb);

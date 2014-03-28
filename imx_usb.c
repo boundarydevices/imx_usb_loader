@@ -97,10 +97,7 @@ static void print_devs(libusb_device **devs)
 /*
  * Parse USB specific machine configuration
  */
-static struct mach_id *parse_imx_conf
-	(char *filename,
-	 int argc,
-	 char const *const *argv)
+static struct mach_id *parse_imx_conf(char const *filename)
 {
 	unsigned short vid;
 	unsigned short pid;
@@ -110,7 +107,7 @@ static struct mach_id *parse_imx_conf
 	struct mach_id *curr = NULL;
 	const char *p;
 
-	FILE* xfile = fopen(conf_file_name(filename,argc,argv), "rb" );
+	FILE* xfile = fopen(filename, "rb" );
 	if (!xfile) {
 		printf("Could not open file: %s\n", filename);
 		return NULL;
@@ -186,6 +183,7 @@ static libusb_device *find_imx_dev(libusb_device **devs, struct mach_id **pp_id,
 			return dev;
 		}
 	}
+	fprintf(stderr, "no matching USB device found\n");
 	*pp_id = NULL;
 	return NULL;
 }
@@ -353,11 +351,21 @@ int main(int argc, char const *const argv[])
 	int verify = 0;
 	struct sdp_work *curr;
 	struct sdp_work *cmd_head;
+	char const *conf;
+	char const *base_path = get_base_path(argv[0]);
+	char const *conf_path = "/etc/imx-loader.d/";
 
 	// Get list of machines...
-	struct mach_id *list = parse_imx_conf("imx_usb.conf",argc,argv);
+	conf = conf_file_name("imx_usb.conf", base_path, conf_path);
+	if (conf == NULL) {
+		printf("imx_usb.conf not found\n");
+		goto out;
+	}
+
+	struct mach_id *list = parse_imx_conf(conf);
 	if (!list)
 		goto out;
+
 	r = libusb_init(NULL);
 	if (r < 0)
 		goto out;
@@ -379,7 +387,11 @@ int main(int argc, char const *const argv[])
 		goto out;
 
 	// Get machine specific configuration file..
-	p_id = parse_conf(mach->file_name,argc,argv);
+	conf = conf_file_name(mach->file_name, base_path, "/etc/imx-loader.d/");
+	if (conf == NULL)
+		goto out;
+
+	p_id = parse_conf(conf);
 	if (!p_id)
 		goto out;
 
