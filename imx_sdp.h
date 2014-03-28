@@ -81,8 +81,9 @@ int get_val(const char** pp, int base);
 const unsigned char *move_string(unsigned char *dest, const unsigned char *src, unsigned cnt);
 void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr);
 
-char const *conf_file_name(char const *base, int argc, char const * const *argv);
-struct sdp_dev *parse_conf(const char *filename, int argc, char const * const *argv);
+char const *get_base_path(char const *argv0);
+char const *conf_file_name(char const *file, char const *base_path, char const *conf_path);
+struct sdp_dev *parse_conf(const char *filename);
 struct sdp_work *parse_cmd_args(int argc, char const * const *argv, int *verify);
 
 int perform_mem_work(struct sdp_dev *dev, struct mem_work *mem);
