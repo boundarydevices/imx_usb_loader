@@ -29,6 +29,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <getopt.h>
 
 #include <libusb-1.0/libusb.h>
 
@@ -336,7 +337,64 @@ err1:
 
 #define ARRAY_SIZE(w) sizeof(w)/sizeof(w[0])
 
-int main(int argc, char const *const argv[])
+void print_usage(void)
+{
+	printf("Usage: imx_usb [OPTIONS...] [JOBS...]\n"
+		"  e.g. imx_usb -v u-boot.imx\n"
+		"Load data on target connected to USB using serial download protocol. The target\n"
+		"type is detected using USB ID, a appropriate configuration file.\n"
+		"\n"
+		"Where OPTIONS are\n"
+		"   -h --help		Show this help\n"
+		"   -v --verify		Verify downloaded data\n"
+		"   -c --configdir=DIR	Reading configuration directory from non standard\n"
+		"			directory.\n"
+		"\n"
+		"And where [JOBS...] are\n"
+		"   FILE [-lLOADADDR] [-sSIZE] ...\n"
+		"Multiple jobs can be configured. The first job is treated special, load\n"
+		"address, jump address, and length are read from the IVT header. If no job\n"
+		"is specified, the jobs definied in the target specific configuration file\n"
+		"is being used.\n");
+}
+
+int parse_opts(int argc, char * const *argv, char const **configdir,
+		int *verify, struct sdp_work **cmd_head)
+{
+	char c;
+
+	static struct option long_options[] = {
+		{"help",	no_argument, 		0, 'h' },
+		{"verify",	no_argument, 		0, 'v' },
+		{"configdir",	required_argument, 	0, 'c' },
+		{0,		0,			0, 0 },
+	};
+
+	while ((c = getopt_long(argc, argv, "+hvc:", long_options, NULL)) != -1) {
+		switch (c)
+		{
+		case 'h':
+		case '?':
+			print_usage();
+			return -1;
+		case 'v':
+			*verify = 1;
+			break;
+		case 'c':
+			*configdir = optarg;
+			break;
+		}
+	}
+
+	if (optind < argc) {
+		// Parse optional job arguments...
+		*cmd_head = parse_cmd_args(argc - optind, &argv[optind]);
+	}
+
+	return 0;
+}
+
+int main(int argc, char * const argv[])
 {
 	struct sdp_dev *p_id;
 	struct mach_id *mach;
@@ -354,16 +412,18 @@ int main(int argc, char const *const argv[])
 	char const *base_path = get_base_path(argv[0]);
 	char const *conf_path = "/etc/imx-loader.d/";
 
+	err = parse_opts(argc, argv, &conf_path, &verify, &curr);
+	if (err < 0)
+		return -1;
+
 	// Get list of machines...
 	conf = conf_file_name("imx_usb.conf", base_path, conf_path);
-	if (conf == NULL) {
-		printf("imx_usb.conf not found\n");
-		goto out;
-	}
+	if (conf == NULL)
+		return -1;
 
 	struct mach_id *list = parse_imx_conf(conf);
 	if (!list)
-		goto out;
+		return -1;
 
 	r = libusb_init(NULL);
 	if (r < 0)
@@ -386,7 +446,7 @@ int main(int argc, char const *const argv[])
 		goto out;
 
 	// Get machine specific configuration file..
-	conf = conf_file_name(mach->file_name, base_path, "/etc/imx-loader.d/");
+	conf = conf_file_name(mach->file_name, base_path, conf_path);
 	if (conf == NULL)
 		goto out;
 
@@ -423,9 +483,6 @@ int main(int argc, char const *const argv[])
 
 	// By default, use work from config file...
 	curr = p_id->work;
-
-	// Parse command line, use work from command line if available
-	cmd_head = parse_cmd_args(argc - 1, &argv[1], &verify);
 
 	if (cmd_head != NULL)
 		curr = cmd_head;
