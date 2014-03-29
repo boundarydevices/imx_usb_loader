@@ -29,6 +29,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <getopt.h>
 
 #include <fcntl.h>
 #include <termios.h>
@@ -66,7 +67,7 @@ int transfer_uart(struct sdp_dev *dev, int report, unsigned char *p, unsigned si
 	return 0;
 }
 
-int connect_uart(int *uart_fd, int argc, char const *const argv[])
+int connect_uart(int *uart_fd, char const *tty, int usectsrts)
 {
 	int err = 0, count = 0;
 	int i;
@@ -79,15 +80,18 @@ int connect_uart(int *uart_fd, int argc, char const *const argv[])
 	memset(&key,0,sizeof(key));
 	memset(&magic_response,0,sizeof(magic_response));
 
-	*uart_fd = open(argv[1], flags);
+	*uart_fd = open(tty, flags);
 	if (*uart_fd < 0) {
+		printf("tty %s\n", tty);
 		fprintf(stdout, "open() failed: %s\n", strerror(errno));
 		return *uart_fd;
 	}
 
 	/* 8 data bits */
 	key.c_cflag |= CS8;
-	key.c_cflag |= CLOCAL | CREAD | CRTSCTS;
+	key.c_cflag |= CLOCAL | CREAD;
+	if (usectsrts)
+		key.c_cflag |= CRTSCTS;
 	key.c_cflag |= B115200;
 
 	/* Enable blocking read, 0.5s timeout.. */
@@ -106,6 +110,7 @@ int connect_uart(int *uart_fd, int argc, char const *const argv[])
 	// Association phase, send and receive 0x23454523
 	printf("starting associating phase\n");
 	write(*uart_fd, magic, sizeof(magic));
+	err = tcflush(*uart_fd, TCIOFLUSH);
 	
 	buf = magic_response;
 	while (count < 4) {
@@ -136,38 +141,130 @@ int connect_uart(int *uart_fd, int argc, char const *const argv[])
 	return err;
 }
 
+void print_usage(void)
+{
+	printf("Usage: imx_uart [OPTIONS...] UART CONFIG [JOBS...]\n"
+		"  e.g. imx_uart -n /dev/ttyUSB0 vybrid_usb_work.conf u-boot.imx\n"
+		"Load data on target connected to UART using serial download protocol as\n"
+		"configured in CONFIG file.\n"
+		"\n"
+		"Where OPTIONS are\n"
+		"   -h --help		Show this help\n"
+		"   -v --verify		Verify downloaded data\n"
+		"   -n --no-ctsrts	Do not use CTS/RTS flow control\n"
+		"			Default is to use CTS/RTS, Vybrid requires them\n"
+		"\n"
+		"And where [JOBS...] are\n"
+		"   FILE [-lLOADADDR] [-sSIZE] ...\n"
+		"Multiple jobs can be configured. The first job is treated special, load\n"
+		"address, jump address, and length are read from the IVT header. If no job\n"
+		"is specified, the jobs definied in the target specific configuration file\n"
+		"is being used.\n");
+}
+
+int parse_opts(int argc, char * const *argv, char const **ttyfile,
+		char const **conffile, int *verify, int *usectsrts,
+		struct sdp_work **cmd_head)
+{
+	char c;
+	*conffile = NULL;
+	*ttyfile = NULL;
+
+	static struct option long_options[] = {
+		{"help",	no_argument, 	0, 'h' },
+		{"verify",	no_argument, 	0, 'v' },
+		{"no-ctsrts",	no_argument, 	0, 'n' },
+		{0,		0,		0, 0 },
+	};
+
+	while ((c = getopt_long(argc, argv, "+hvn", long_options, NULL)) != -1) {
+		switch (c)
+		{
+		case 'h':
+		case '?':
+			print_usage();
+			return -1;
+		case 'n':
+			*usectsrts = 0;
+			break;
+		case 'v':
+			*verify = 1;
+			break;
+		}
+	}
+
+	// Options parsed, get mandatory arguments...
+	if (optind >= argc) {
+		fprintf(stderr, "non optional argument UART is missing\n");
+		return -1;
+	}
+
+	*ttyfile = argv[optind];
+	optind++;
+
+	if (optind >= argc) {
+		fprintf(stderr, "non optional argument CONFIG is missing\n");
+		return -1;
+	}
+
+	*conffile = argv[optind];
+	optind++;
+
+	if (optind < argc) {
+		// Parse optional job arguments...
+		*cmd_head = parse_cmd_args(argc - optind, &argv[optind]);
+	}
+
+	return 0;
+}
+
 #define ARRAY_SIZE(w) sizeof(w)/sizeof(w[0])
 
-int main(int argc, char const *const argv[])
+int main(int argc, char * const argv[])
 {
 	struct sdp_dev *p_id;
 	int err;
 	ssize_t cnt;
 	int config = 0;
 	int verify = 0;
+	int usectsrts = 1;
 	int uart_fd;
 	struct sdp_work *curr;
-	struct sdp_work *cmd_head;
 	char const *conf;
+	char const *ttyfile;
+	char const *conffilepath;
+	char const *conffile;
+	char const *basepath;
 
-	if (argc < 3) {
-		fprintf(stderr, "usage: imx_uart [uart] [config]\n");
-		goto out;
-	}
+	err = parse_opts(argc, argv, &ttyfile, &conffilepath, &verify, &usectsrts, &curr);
 
-	// Get list of machines...
-	err = connect_uart(&uart_fd, argc, argv);
 	if (err < 0)
-		goto out;
+		return err;
 
 	// Get machine specific configuration file..
-	conf = conf_file_name(argv[2], get_base_path(argv[0]), "/etc/imx-loader.d/");
+	if ((conffile = strrchr(conffilepath, '/')) == NULL) {
+		// Only a file was given as configuration
+		basepath = get_base_path(argv[0]);
+		conffile = conffilepath;
+	} else {
+		// A whole path is given as configuration
+		basepath = get_base_path(conffilepath);
+		conffile++; // Filename starts after slash
+	}
+
+	conf = conf_file_name(conffile, basepath, "/etc/imx-loader.d/");
 	if (conf == NULL)
-		goto out;
+		return -1;
 
 	p_id = parse_conf(conf);
 	if (!p_id)
+		return -1;
+
+	// Open UART and start associating phase...
+	err = connect_uart(&uart_fd, ttyfile, usectsrts);
+	if (err < 0)
 		goto out;
+
 	p_id->transfer = &transfer_uart;
 
 	// UART private pointer is TTY file descriptor...
@@ -180,13 +277,8 @@ int main(int argc, char const *const argv[])
 	}
 
 	// By default, use work from config file...
-	curr = p_id->work;
-
-	// Parse command line, use work from command line if available
-	cmd_head = parse_cmd_args(argc - 3, &argv[3], &verify);
-
-	if (cmd_head != NULL)
-		curr = cmd_head;
+	if (curr == NULL)
+		curr = p_id->work;
 
 	while (curr) {
 		if (curr->mem)
@@ -199,31 +291,15 @@ int main(int argc, char const *const argv[])
 			err = do_status(p_id);
 			break;
 		}
-		if (!curr->next && (!curr->plug || curr != cmd_head))
+		if (!curr->next && !curr->plug)
 			break;
 		err = do_status(p_id);
 		printf("jump_mode %x plug=%i err=%i\n", curr->jump_mode, curr->plug, err);
-		if (err) {
+
+		if (err)
 			goto out;
-			//int retry;
-			/* Rediscovers device */
-			/*
-			libusb_release_interface(h, 0);
-			libusb_close(h);
-			libusb_exit(NULL);
-			for (retry = 0; retry < 10; retry++) {
-				printf("sleeping\n");
-				sleep(3);
-				printf("done sleeping\n");
-				h = open_vid_pid(mach, p_id);
-				if (h)
-					break;
-			}
-			if (!h)
-				goto out;
-				*/
-		}
-		if (curr == cmd_head && curr->plug) {
+
+		if (curr->plug) {
 			curr->plug = 0;
 			continue;
 		}

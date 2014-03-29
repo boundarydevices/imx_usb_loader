@@ -381,7 +381,7 @@ struct sdp_dev *parse_conf(const char *filename)
 	return usb;
 }
 
-struct sdp_work *parse_cmd_args(int argc, char const * const *argv, int *verify)
+struct sdp_work *parse_cmd_args(int argc, char * const *argv)
 {
 	int i = 0;
 	struct sdp_work *prev = NULL;
@@ -394,11 +394,6 @@ struct sdp_work *parse_cmd_args(int argc, char const * const *argv, int *verify)
 			char c;
 			p++;
 			c = *p++;
-			if (c == 'v') {
-				*verify = 1;
-				i++;
-				continue;
-			}
 			if (w == NULL) {
 				printf("specify file first\n");
 				exit(1);
@@ -423,7 +418,7 @@ struct sdp_work *parse_cmd_args(int argc, char const * const *argv, int *verify)
 				i++;
 				continue;
 			}
-			printf("Unknown option %s\n", p);
+			fprintf(stderr, "Unknown option %s\n", p);
 			exit(1);
 		}
 
@@ -431,6 +426,12 @@ struct sdp_work *parse_cmd_args(int argc, char const * const *argv, int *verify)
 		w = malloc(sizeof(struct sdp_work));
 		memset(w, 0, sizeof(struct sdp_work));
 		strncpy(w->filename, argv[i], sizeof(w->filename) - 1);
+		if (access(w->filename, R_OK) == -1) {
+			fprintf(stderr, "cannot read from file %s\n",
+					w->filename);
+			exit(1);
+		}
+
 
 		if (head == NULL) {
 			// Special settings for first work...
