@@ -67,7 +67,7 @@ int transfer_uart(struct sdp_dev *dev, int report, unsigned char *p, unsigned si
 	return 0;
 }
 
-int connect_uart(int *uart_fd, char const *tty, int usectsrts)
+int connect_uart(int *uart_fd, char const *tty, int usertscts)
 {
 	int err = 0, count = 0;
 	int i;
@@ -90,7 +90,7 @@ int connect_uart(int *uart_fd, char const *tty, int usectsrts)
 	/* 8 data bits */
 	key.c_cflag |= CS8;
 	key.c_cflag |= CLOCAL | CREAD;
-	if (usectsrts)
+	if (usertscts)
 		key.c_cflag |= CRTSCTS;
 	key.c_cflag |= B115200;
 
@@ -151,8 +151,8 @@ void print_usage(void)
 		"Where OPTIONS are\n"
 		"   -h --help		Show this help\n"
 		"   -v --verify		Verify downloaded data\n"
-		"   -n --no-ctsrts	Do not use CTS/RTS flow control\n"
-		"			Default is to use CTS/RTS, Vybrid requires them\n"
+		"   -n --no-rtscts	Do not use RTS/CTS flow control\n"
+		"			Default is to use RTS/CTS, Vybrid requires them\n"
 		"\n"
 		"And where [JOBS...] are\n"
 		"   FILE [-lLOADADDR] [-sSIZE] ...\n"
@@ -163,7 +163,7 @@ void print_usage(void)
 }
 
 int parse_opts(int argc, char * const *argv, char const **ttyfile,
-		char const **conffile, int *verify, int *usectsrts,
+		char const **conffile, int *verify, int *usertscts,
 		struct sdp_work **cmd_head)
 {
 	char c;
@@ -173,7 +173,7 @@ int parse_opts(int argc, char * const *argv, char const **ttyfile,
 	static struct option long_options[] = {
 		{"help",	no_argument, 	0, 'h' },
 		{"verify",	no_argument, 	0, 'v' },
-		{"no-ctsrts",	no_argument, 	0, 'n' },
+		{"no-rtscts",	no_argument, 	0, 'n' },
 		{0,		0,		0, 0 },
 	};
 
@@ -185,7 +185,7 @@ int parse_opts(int argc, char * const *argv, char const **ttyfile,
 			print_usage();
 			return -1;
 		case 'n':
-			*usectsrts = 0;
+			*usertscts = 0;
 			break;
 		case 'v':
 			*verify = 1;
@@ -227,7 +227,7 @@ int main(int argc, char * const argv[])
 	ssize_t cnt;
 	int config = 0;
 	int verify = 0;
-	int usectsrts = 1;
+	int usertscts = 1;
 	int uart_fd;
 	struct sdp_work *curr;
 	char const *conf;
@@ -236,7 +236,7 @@ int main(int argc, char * const argv[])
 	char const *conffile;
 	char const *basepath;
 
-	err = parse_opts(argc, argv, &ttyfile, &conffilepath, &verify, &usectsrts, &curr);
+	err = parse_opts(argc, argv, &ttyfile, &conffilepath, &verify, &usertscts, &curr);
 
 	if (err < 0)
 		return err;
@@ -261,7 +261,7 @@ int main(int argc, char * const argv[])
 		return -1;
 
 	// Open UART and start associating phase...
-	err = connect_uart(&uart_fd, ttyfile, usectsrts);
+	err = connect_uart(&uart_fd, ttyfile, usertscts);
 	if (err < 0)
 		goto out;
 
