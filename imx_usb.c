@@ -412,7 +412,7 @@ int main(int argc, char * const argv[])
 	char const *base_path = get_base_path(argv[0]);
 	char const *conf_path = "/etc/imx-loader.d/";
 
-	err = parse_opts(argc, argv, &conf_path, &verify, &curr);
+	err = parse_opts(argc, argv, &conf_path, &verify, &cmd_head);
 	if (err < 0)
 		return -1;
 
