@@ -67,7 +67,7 @@ int transfer_uart(struct sdp_dev *dev, int report, unsigned char *p, unsigned si
 	return 0;
 }
 
-int connect_uart(int *uart_fd, char const *tty, int usertscts)
+int uart_connect(int *uart_fd, char const *tty, int usertscts, struct termios *orig)
 {
 	int err = 0, count = 0;
 	int i;
@@ -87,14 +87,17 @@ int connect_uart(int *uart_fd, char const *tty, int usertscts)
 		return *uart_fd;
 	}
 
-	/* 8 data bits */
+	// Get original terminal settings
+	err = tcgetattr(*uart_fd, orig);
+
+	// 8 data bits
 	key.c_cflag |= CS8;
 	key.c_cflag |= CLOCAL | CREAD;
 	if (usertscts)
 		key.c_cflag |= CRTSCTS;
 	key.c_cflag |= B115200;
 
-	/* Enable blocking read, 0.5s timeout.. */
+	// Enable blocking read, 0.5s timeout...
 	key.c_cc[VMIN] = 1;
 	key.c_cc[VTIME] = 5;
 
@@ -139,6 +142,18 @@ int connect_uart(int *uart_fd, char const *tty, int usertscts)
 				*(uint32_t *)magic_response);
 
 	return err;
+}
+
+void uart_close(int *uart_fd, struct termios *orig)
+{
+	int err;
+
+	// Restore original terminal settings
+	err = tcsetattr(*uart_fd, TCSAFLUSH, orig);
+	if (err < 0)
+		fprintf(stdout, "tcsetattr() failed: %s\n", strerror(errno));
+
+	close(*uart_fd);
 }
 
 void print_usage(void)
@@ -235,6 +250,7 @@ int main(int argc, char * const argv[])
 	char const *conffilepath;
 	char const *conffile;
 	char const *basepath;
+	struct termios orig;
 
 	err = parse_opts(argc, argv, &ttyfile, &conffilepath, &verify, &usertscts, &curr);
 
@@ -261,7 +277,7 @@ int main(int argc, char * const argv[])
 		return -1;
 
 	// Open UART and start associating phase...
-	err = connect_uart(&uart_fd, ttyfile, usertscts);
+	err = uart_connect(&uart_fd, ttyfile, usertscts, &orig);
 	if (err < 0)
 		goto out;
 
@@ -307,5 +323,6 @@ int main(int argc, char * const argv[])
 	}
 
 out:
+	uart_close(&uart_fd, &orig);
 	return 0;
 }
