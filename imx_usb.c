@@ -35,7 +35,11 @@
 
 #include "imx_sdp.h"
 
-#define get_min(a, b) (((a) < (b)) ? (a) : (b))
+#ifdef DEBUG
+#define dbg_printf(fmt, args...)	fprintf(stderr, fmt, ## args)
+#else
+#define dbg_printf(fmt, args...)    /* Don't do anything in release builds */
+#endif
 
 struct mach_id;
 struct mach_id {
@@ -250,7 +254,7 @@ int transfer_hid(struct sdp_dev *dev, int report, unsigned char *p, unsigned int
 		*last_trans = 0;
 		memset(&tmp[1], 0, cnt);
 		err = libusb_interrupt_transfer(h, 1 + EP_IN, tmp, cnt + 1, last_trans, 1000);
-		printf("libusb_interrupt_transfer, err=%d, trans=%d\n", err,
+		dbg_printf("libusb_interrupt_transfer, err=%d, trans=%d\n", err,
 				*last_trans);
 		if (err >= 0) {
 			if (tmp[0] == (unsigned char)report)
