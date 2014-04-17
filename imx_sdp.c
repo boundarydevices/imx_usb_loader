@@ -21,9 +21,18 @@
 #include <sys/types.h>
 #include <time.h>
 
+#ifndef WIN32
 #include <unistd.h>
+#else
+#include <windows.h>
+#include <stddef.h>
+#endif
 #include <ctype.h>
+#ifndef WIN32
 #include <sys/io.h>
+#else
+#include <io.h>
+#endif
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
@@ -32,11 +41,28 @@
 
 #include "imx_sdp.h"
 
+#ifndef WIN32
+
 #ifdef DEBUG
 #define dbg_printf(fmt, args...)	fprintf(stderr, fmt, ## args)
 #else
 #define dbg_printf(fmt, args...)    /* Don't do anything in release builds */
 #endif
+#else
+
+#ifdef DEBUG
+#define dbg_printf(fmt, ...)	fprintf(stderr, fmt, __VA_ARGS__)
+#else
+#define dbg_printf(fmt, ...)    /* Don't do anything in release builds */
+
+#define R_OK	04
+#define access(filename,oflag)	_access(filename,oflag)
+
+#endif
+
+#define usleep(us)	Sleep((us+999)/1000)
+#endif
+
 
 #define get_min(a, b) (((a) < (b)) ? (a) : (b))
 
@@ -78,7 +104,7 @@ int get_val(const char** pp, int base)
 
 const unsigned char *move_string(unsigned char *dest, const unsigned char *src, unsigned cnt)
 {
-	int i = 0;
+	unsigned i = 0;
 	while (i < cnt) {
 		char c = *src++;
 		if ((!c) || (c == ' ') || (c == 0x0d) || (c == '\n') || (c == '#') || (c == ':')) {
@@ -96,7 +122,7 @@ char const *get_base_path(char const *argv0)
 	char *e;
 
 	strncpy(base_path, argv0, sizeof(base_path));
-	e = strrchr(base_path, '/');
+	e = strrchr(base_path, PATH_SEPARATOR);
 	if (e) {
 		dbg_printf( "trailing slash == %p:%s\n", e, e);
 		e[1] = 0;
@@ -123,7 +149,6 @@ char const *conf_path_ok(char const *conf_path, char const *conf_file)
 char const *conf_file_name(char const *file, char const *base_path, char const *conf_path)
 {
 	char const *conf;
-	char *e;
 
 	// First priority, base path, relative path of binary...
 	dbg_printf("checking with base_path %s\n", base_path);
@@ -165,7 +190,7 @@ void parse_mem_work(struct sdp_work *curr, const char *filename, const char *p)
 	struct mem_work *wp;
 	struct mem_work **link;
 	struct mem_work w;
-	int i;
+	unsigned int i;
 	const char *start = p;
 
 	p = skip(p,':');
@@ -516,7 +541,6 @@ static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, 
 {
 //							address, format, data count, data, type
 	static unsigned char read_reg_command[] = {1,1, V(0),   0x20, V(0x00000004), V(0), 0x00};
-	unsigned val;
 	int retry = 0;
 	int last_trans;
 	int err;
@@ -619,7 +643,7 @@ static int write_memory(struct sdp_dev *dev, unsigned addr, unsigned val)
 	return err;
 }
 
-int perform_mem_work(struct sdp_dev *dev, struct mem_work *mem)
+void perform_mem_work(struct sdp_dev *dev, struct mem_work *mem)
 {
 	unsigned tmp, tmp2;
 
@@ -722,13 +746,13 @@ static int get_dcd_range_old(struct old_app_header *hdr,
 		return -1;
 	}
 	val = (dcd[0] << 0) + (dcd[1] << 8) | (dcd[2] << 16) + (dcd[3] << 24);
-	printf("main dcd length %x\n", m_length);
 	if (val != DCD_BARKER) {
 		printf("Unknown tag\n");
 		return -1;
 	}
 	dcd += 4;
 	m_length =  (dcd[0] << 0) + (dcd[1] << 8) | (dcd[2] << 16) + (dcd[3] << 24);
+	printf("main dcd length %x\n", m_length);
 	dcd += 4;
 	dcd_end = dcd + m_length;
 	if (dcd_end > file_end) {
@@ -881,7 +905,7 @@ int verify_memory(struct sdp_dev *dev, FILE *xfile, unsigned offset,
 		}
 		if (verify_cnt) {
 			p = verify_buffer;
-			cnt = get_min(request, verify_cnt);
+			cnt = (int)get_min(request, (int)verify_cnt);
 			verify_buffer += cnt;
 			verify_cnt -= cnt;
 		} else {
@@ -907,7 +931,7 @@ int verify_memory(struct sdp_dev *dev, FILE *xfile, unsigned offset,
 				while (request) {
 					unsigned skip = addr & 0x1f;
 					unsigned max = 0x20 - skip;
-					unsigned req = get_min(request, max);
+					unsigned req = get_min(request, (int)max);
 					if (memcmp(p, m, req)) {
 						dump_long(p, req, offset, skip);
 						dump_long(m, req, addr, skip);
@@ -1136,8 +1160,8 @@ int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 			if (*p_plugin && (!curr->plug) && (!header_cnt)) {
 				header_cnt++;
 				header_max = header_offset + *p_max_length + 0x400;
-				if (header_max > cnt - 32)
-					header_max = cnt - 32;
+				if (header_max > (unsigned)(cnt - 32))
+					header_max = (unsigned)(cnt - 32);
 				printf("header_max=%x\n", header_max);
 				header_inc = 4;
 			} else {
@@ -1229,12 +1253,13 @@ int load_file(struct sdp_dev *dev,
 			cnt -= last_trans;
 			transferSize += last_trans;
 		}
+
 		if (!last_trans) break;
 		if (feof(xfile)) break;
 		cnt = fsize - transferSize;
 		if (cnt <= 0)
 			break;
-		cnt = fread(buf, 1 , get_min(cnt, buf_cnt), xfile);
+		cnt = fread(buf, 1 , get_min(cnt, (int)buf_cnt), xfile);
 		p = buf;
 	}
 	printf("\r\n<<<%i, %i bytes>>>\r\n", fsize, transferSize);
@@ -1273,8 +1298,6 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 	unsigned fsize;
 	unsigned header_offset;
 	int cnt;
-	struct ivt_header *hdr;
-	struct old_app_header *ohdr;
 	unsigned file_base;
 	int last_trans, err;
 #define BUF_SIZE (1024*16)
@@ -1353,7 +1376,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		dladdr = file_base;
 	}
 	skip = dladdr - file_base;
-	if (skip > cnt) {
+	if ((int)skip > cnt) {
 		if (skip > fsize) {
 			printf("skip(0x%08x) > fsize(0x%08x) file_base=0x%08x, header_offset=0x%x\n", skip, fsize, file_base, header_offset);
 			ret = -4;
