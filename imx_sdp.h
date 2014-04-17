@@ -86,10 +86,15 @@ char const *conf_file_name(char const *file, char const *base_path, char const *
 struct sdp_dev *parse_conf(const char *filename);
 struct sdp_work *parse_cmd_args(int argc, char * const *argv);
 
-int perform_mem_work(struct sdp_dev *dev, struct mem_work *mem);
+void perform_mem_work(struct sdp_dev *dev, struct mem_work *mem);
 int do_status(struct sdp_dev *dev);
 
 int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify);
 
+#ifndef WIN32
+#define PATH_SEPARATOR	'/'
+#else
+#define PATH_SEPARATOR	'\\'
+#endif
 
 #endif /* __IMX_SDP_H__ */

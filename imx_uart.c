@@ -1,7 +1,7 @@
 /*
- * imx_usb:
+ * imx_uart:
  *
- * Program to download and execute an image over the USB boot protocol
+ * Program to download and execute an image over the serial boot protocol
  * on i.MX series processors.
  *
  * This library is free software; you can redistribute it and/or
@@ -22,20 +22,43 @@
 #include <sys/types.h>
 #include <time.h>
 
+#ifndef WIN32
 #include <unistd.h>
+#else
+#include <Windows.h>
+#endif
 #include <ctype.h>
+#ifndef WIN32
 #include <sys/io.h>
+#else
+#include <io.h>
+#endif
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
+
+#ifndef WIN32
 #include <getopt.h>
+#else
+#include "getopt.h"	// use local re-implementation of getopt
+#endif
 
 #include <fcntl.h>
+
+#ifndef WIN32
 #include <termios.h>
 
 #include <sys/ioctl.h>
 #include <linux/serial.h>
+#else
+
+#define open(filename,oflag)	_open(filename,oflag)
+#define write(fd,buffer,count)	_write(fd,buffer,count)
+#define read(fd,buffer,count)	_read(fd,buffer,count)
+#define close(fd)				_close(fd)
+
+#endif
 
 #include "imx_sdp.h"
 
@@ -52,7 +75,7 @@ int transfer_uart(struct sdp_dev *dev, int report, unsigned char *p, unsigned si
 		// Read...
 		int ret;
 		*last_trans = 0;
-		while (*last_trans < expected)
+		while (*last_trans < (int)expected)
 		{
 			ret = read(fd, p, expected - *last_trans);
 			if (ret < 0)
@@ -67,17 +90,30 @@ int transfer_uart(struct sdp_dev *dev, int report, unsigned char *p, unsigned si
 	return 0;
 }
 
+#ifndef WIN32
 int uart_connect(int *uart_fd, char const *tty, int usertscts, struct termios *orig)
+#else
+int uart_connect(int *uart_fd, char const *tty, int usertscts, DCB* orig)
+#endif
 {
 	int err = 0, count = 0;
 	int i;
+#ifndef WIN32
 	int flags = O_RDWR | O_NOCTTY | O_SYNC;
 	struct termios key;
 	struct serial_struct ser_info; 
+#else
+	int flags = O_RDWR | _O_BINARY;
+	DCB dcb;
+	COMMTIMEOUTS timeouts;
+	HANDLE handle;
+#endif
 	char magic[] = { 0x23, 0x45, 0x45, 0x23 };
 	char magic_response[4];
 	char *buf;
+#ifndef WIN32
 	memset(&key,0,sizeof(key));
+#endif
 	memset(&magic_response,0,sizeof(magic_response));
 
 	*uart_fd = open(tty, flags);
@@ -87,6 +123,7 @@ int uart_connect(int *uart_fd, char const *tty, int usertscts, struct termios *o
 		return *uart_fd;
 	}
 
+#ifndef WIN32
 	// Get original terminal settings
 	err = tcgetattr(*uart_fd, orig);
 
@@ -109,11 +146,63 @@ int uart_connect(int *uart_fd, char const *tty, int usertscts, struct termios *o
 	}
 
 	err = tcflush(*uart_fd, TCIOFLUSH);
+#else
+	handle=(HANDLE)_get_osfhandle(*uart_fd);
 
+	orig->DCBlength=sizeof(DCB);
+
+	GetCommState(handle,orig);
+
+	memset(&dcb,0,sizeof(DCB));
+
+	dcb.DCBlength=sizeof(DCB);
+	dcb.fBinary=TRUE;
+	dcb.fParity=FALSE;
+	dcb.BaudRate=CBR_115200;
+	dcb.ByteSize=8;
+
+	if (usertscts)
+	{
+		dcb.fRtsControl=RTS_CONTROL_ENABLE;
+		dcb.fOutxCtsFlow=TRUE;
+	}
+
+	if (!SetCommState(handle,&dcb))
+	{
+		fprintf(stdout, "SetCommState() failed: %d\n", GetLastError());
+		close(*uart_fd);
+		return err;
+	}
+
+	memset(&timeouts,0,sizeof(COMMTIMEOUTS));
+
+	timeouts.ReadIntervalTimeout=MAXDWORD;
+	timeouts.ReadTotalTimeoutMultiplier=MAXDWORD;
+	timeouts.ReadTotalTimeoutConstant=500;
+
+	if (!SetCommTimeouts(handle,&timeouts))
+	{
+		fprintf(stdout, "SetCommTimeouts() failed: %d\n", GetLastError());
+		close(*uart_fd);
+		return err;
+	}
+
+	if (!PurgeComm(handle,PURGE_TXABORT|PURGE_RXABORT))
+	{
+		fprintf(stdout, "PurgeComm() failed: %d\n", GetLastError());
+		close(*uart_fd);
+		return err;
+	}
+
+
+#endif
 	// Association phase, send and receive 0x23454523
 	printf("starting associating phase\n");
 	write(*uart_fd, magic, sizeof(magic));
+
+#ifndef WIN32
 	err = tcflush(*uart_fd, TCIOFLUSH);
+#endif
 	
 	buf = magic_response;
 	while (count < 4) {
@@ -144,14 +233,26 @@ int uart_connect(int *uart_fd, char const *tty, int usertscts, struct termios *o
 	return err;
 }
 
+#ifndef WIN32
 void uart_close(int *uart_fd, struct termios *orig)
+#else
+void uart_close(int *uart_fd, DCB* orig)
+#endif
 {
+#ifndef WIN32
 	int err;
 
 	// Restore original terminal settings
 	err = tcsetattr(*uart_fd, TCSAFLUSH, orig);
 	if (err < 0)
 		fprintf(stdout, "tcsetattr() failed: %s\n", strerror(errno));
+#else
+	HANDLE handle;
+
+	handle=(HANDLE)_get_osfhandle(*uart_fd);
+
+	SetCommState(handle,orig);
+#endif
 
 	close(*uart_fd);
 }
@@ -159,7 +260,11 @@ void uart_close(int *uart_fd, struct termios *orig)
 void print_usage(void)
 {
 	printf("Usage: imx_uart [OPTIONS...] UART CONFIG [JOBS...]\n"
+#ifndef WIN32
 		"  e.g. imx_uart -n /dev/ttyUSB0 vybrid_usb_work.conf u-boot.imx\n"
+#else
+		"  e.g. imx_uart -n COM1: vybrid_uart_work.conf eboot.img\n"
+#endif
 		"Load data on target connected to UART using serial download protocol as\n"
 		"configured in CONFIG file.\n"
 		"\n"
@@ -239,7 +344,6 @@ int main(int argc, char * const argv[])
 {
 	struct sdp_dev *p_id;
 	int err;
-	ssize_t cnt;
 	int config = 0;
 	int verify = 0;
 	int usertscts = 1;
@@ -250,7 +354,13 @@ int main(int argc, char * const argv[])
 	char const *conffilepath;
 	char const *conffile;
 	char const *basepath;
+#ifndef WIN32
 	struct termios orig;
+#else
+	DCB orig;
+#endif
+
+	curr=NULL;
 
 	err = parse_opts(argc, argv, &ttyfile, &conffilepath, &verify, &usertscts, &curr);
 
@@ -258,7 +368,7 @@ int main(int argc, char * const argv[])
 		return err;
 
 	// Get machine specific configuration file..
-	if ((conffile = strrchr(conffilepath, '/')) == NULL) {
+	if ((conffile = strrchr(conffilepath, PATH_SEPARATOR)) == NULL) {
 		// Only a file was given as configuration
 		basepath = get_base_path(argv[0]);
 		conffile = conffilepath;
@@ -278,6 +388,7 @@ int main(int argc, char * const argv[])
 
 	// Open UART and start associating phase...
 	err = uart_connect(&uart_fd, ttyfile, usertscts, &orig);
+
 	if (err < 0)
 		goto out;
 
