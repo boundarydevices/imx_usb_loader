@@ -1,27 +1,42 @@
-all: imx_usb
+all: imx_usb imx_uart
+
+DESTDIR ?= ""
+prefix ?= "/usr"
+bindir ?= "$(prefix)/bin"
+sysconfdir ?= "$(prefix)/etc"
 
 BUILDHOST := $(shell uname -s)
 BUILDHOST := $(patsubst CYGWIN_%,CYGWIN,$(BUILDHOST))
 
 ifneq ($(BUILDHOST),CYGWIN)
-CFLAGS = `pkg-config --cflags libusb-1.0`
+USBCFLAGS = `pkg-config --cflags libusb-1.0`
+USBLDFLAGS = `pkg-config --libs libusb-1.0`
 else
-CFLAGS = -I/usr/include/libusb-1.0
+USBCFLAGS = -I/usr/include/libusb-1.0
+USBLDFLAGS = -lusb-1.0
 endif
 
-%.o : %.cpp
-	$(CC) -c $*.cpp -o $@ -Wno-trigraphs -pipe -ggdb -Wall $(CFLAGS)
+imx_usb.o : imx_usb.c
+	$(CC) -c $*.c -o $@ -Wstrict-prototypes -Wno-trigraphs -pipe -ggdb $(USBCFLAGS) $(CFLAGS)
 
 %.o : %.c
 	$(CC) -c $*.c -o $@ -Wstrict-prototypes -Wno-trigraphs -pipe -ggdb $(CFLAGS)
 
-imx_usb: imx_usb.o 
-	$(CC) -o $@ $@.o -lusb-1.0
+imx_usb: imx_usb.o imx_sdp.o
+	$(CC) -o $@ $@.o imx_sdp.o $(CFLAGS) $(USBCFLAGS) $(LDFLAGS) $(USBLDFLAGS)
 
-install: imx_usb
-	mkdir -p ${DESTDIR}/usr/bin/
-	install -m755 imx_usb ${DESTDIR}/usr/bin/imx_usb
+imx_uart: imx_uart.o imx_sdp.o
+	$(CC) -o $@ $@.o imx_sdp.o $(CFLAGS) $(LDFLAGS)
+
+install: imx_usb imx_uart
+	mkdir -p $(DESTDIR)$(sysconfdir)/imx-loader.d/
+	install -m644 *.conf $(DESTDIR)$(sysconfdir)/imx-loader.d/
+	mkdir -p $(DESTDIR)$(bindir)
+	install -m755 imx_usb $(DESTDIR)$(bindir)/imx_usb
+	install -m755 imx_uart $(DESTDIR)$(bindir)/imx_uart
 
 clean:
-	rm -f imx_usb imx_usb.o
+	rm -f imx_usb imx_uart imx_usb.o imx_uart.o imx_sdp.o
+
+.PHONY: all clean install
 
