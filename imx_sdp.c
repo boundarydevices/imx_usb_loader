@@ -123,6 +123,12 @@ char const *get_base_path(char const *argv0)
 
 	strncpy(base_path, argv0, sizeof(base_path));
 	e = strrchr(base_path, PATH_SEPARATOR);
+#ifdef  __unix__
+	if (!e) {
+		readlink("/proc/self/exe", base_path,sizeof(base_path));
+		e = strrchr(base_path, PATH_SEPARATOR);
+	}
+#endif
 	if (e) {
 		dbg_printf( "trailing slash == %p:%s\n", e, e);
 		e[1] = 0;
