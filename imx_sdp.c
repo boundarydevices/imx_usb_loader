@@ -1146,7 +1146,7 @@ int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 				}
 				curr->dcd = 0;
 				if ((!curr->jump_mode) && (!curr->plug)) {
-					printf("!!dcd done, nothing else requested\n", ret);
+					printf("!!dcd done, nothing else requested\n");
 					return 0;
 				}
 			}
