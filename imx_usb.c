@@ -394,6 +394,10 @@ int parse_opts(int argc, char * const *argv, char const **configdir,
 		// Parse optional job arguments...
 		*cmd_head = parse_cmd_args(argc - optind, &argv[optind]);
 	}
+    else
+    {
+        *cmd_head = NULL;
+    }
 
 	return 0;
 }
