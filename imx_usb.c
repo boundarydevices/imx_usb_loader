@@ -365,7 +365,7 @@ void print_usage(void)
 int parse_opts(int argc, char * const *argv, char const **configdir,
 		int *verify, struct sdp_work **cmd_head)
 {
-	char c;
+	int c;
 
 	static struct option long_options[] = {
 		{"help",	no_argument, 		0, 'h' },
@@ -411,7 +411,7 @@ int main(int argc, char * const argv[])
 	int config = 0;
 	int verify = 0;
 	struct sdp_work *curr;
-	struct sdp_work *cmd_head;
+	struct sdp_work *cmd_head = NULL;
 	char const *conf;
 	char const *base_path = get_base_path(argv[0]);
 	char const *conf_path = "/etc/imx-loader.d/";
@@ -490,6 +490,11 @@ int main(int argc, char * const argv[])
 
 	if (cmd_head != NULL)
 		curr = cmd_head;
+
+	if (curr == NULL) {
+		printf("no job found\n"); 
+		goto out;
+	}
 
 	while (curr) {
 		if (curr->mem)
