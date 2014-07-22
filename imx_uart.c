@@ -240,7 +240,7 @@ int uart_connect(int *uart_fd, char const *tty, int usertscts, DCB* orig)
 	if (!retry) {
 		fprintf(stderr, "associating phase failed, make sure the device"
 		       " is in recovery mode\n");
-		return err;
+		return -2;
 	}
 
 	err = 0;
@@ -248,7 +248,7 @@ int uart_connect(int *uart_fd, char const *tty, int usertscts, DCB* orig)
 	if (memcmp(magic, magic_response, sizeof(magic_response))) {
 		fprintf(stderr, "magic missmatch, response was 0x%08x\n",
 				*(uint32_t *)magic_response);
-		return -1;
+		return -3;
 	}
 
 	fprintf(stderr, "association phase succeeded, response was 0x%08x\n",
@@ -367,7 +367,7 @@ int parse_opts(int argc, char * const *argv, char const **ttyfile,
 int main(int argc, char * const argv[])
 {
 	struct sdp_dev *p_id;
-	int err;
+	int err = 0;
 	int config = 0;
 	int verify = 0;
 	int usertscts = 1;
@@ -459,5 +459,5 @@ int main(int argc, char * const argv[])
 
 out:
 	uart_close(&uart_fd, &orig);
-	return 0;
+	return err;
 }
