@@ -163,7 +163,7 @@ char const *conf_file_name(char const *file, char const *base_path, char const *
 		return conf;
 
 	// Second priority, conf path... (either -c, binary or /etc/imx-loader.d/)
-	dbg_printf("checking with conf_path %s\n", base_path);
+	dbg_printf("checking with conf_path %s\n", conf_path);
 	conf = conf_path_ok(conf_path, file);
 	if (conf != NULL)
 		return conf;
