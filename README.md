@@ -15,7 +15,7 @@ The utility support USB and UART as serial link.
 1. Make sure libusb (1.0) is available
 1. Compile using make
 
-Tow binaries are available, imx_usb and imx_uart for the two supported
+Two binaries are available, imx_usb and imx_uart for the two supported
 connections.
 
 ## Usage
