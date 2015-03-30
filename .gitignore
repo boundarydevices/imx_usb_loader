@@ -4,3 +4,4 @@ imx_uart
 imx_usb.lds
 imx_uart.lds
 *.bin
+.*.swp
