@@ -40,14 +40,11 @@
 
 
 #include "imx_sdp.h"
+int debugmode = 0;
 
 #ifndef WIN32
 
-#ifdef DEBUG
-#define dbg_printf(fmt, args...)	fprintf(stderr, fmt, ## args)
-#else
-#define dbg_printf(fmt, args...)    /* Don't do anything in release builds */
-#endif
+#define dbg_printf(fmt, args...)	do{ if(debugmode) fprintf(stderr, fmt, ## args); } while(0)
 #else
 
 #ifdef DEBUG
