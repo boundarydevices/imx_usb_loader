@@ -54,11 +54,11 @@
 #define dbg_printf(fmt, ...)	fprintf(stderr, fmt, __VA_ARGS__)
 #else
 #define dbg_printf(fmt, ...)    /* Don't do anything in release builds */
+#endif
 
 #define R_OK	04
 #define access(filename,oflag)	_access(filename,oflag)
 
-#endif
 
 #define usleep(us)	Sleep((us+999)/1000)
 #endif
