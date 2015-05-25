@@ -26,7 +26,7 @@ variant for the target device (transfer configuration). The
 configuration file can also contains work item(s).
 
 Work items can also be defined using the command line. By specifying a
-file in the command line, the utilty automatically uses this file as
+file in the command line, the utility automatically uses this file as
 a work item and reads parameter from its header:
 
 ```
@@ -40,7 +40,7 @@ However, parameters can also specified manually, e.g.
 ```
 
 The UART link uses hardware flow control using RTS/CTS, so make sure
-those are available. The imx_uart utilty will configure the target
+those are available. The imx_uart utility will configure the target
 tty with the right baud rate (115200) and flow control settings:
 
 ```
