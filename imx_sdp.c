@@ -1113,7 +1113,7 @@ int do_status(struct sdp_dev *dev)
 	}
 
 	hab_security = (unsigned int *)tmp;
-	printf("HAB security state: %s (0x%08x)\n", *hab_security == 0x12343412 ?
+	printf("HAB security state: %s (0x%08x)\n", *hab_security == HAB_SECMODE_PROD ?
 			"production mode" : "development mode", *hab_security);
 
 	if (dev->mode == MODE_HID) {
