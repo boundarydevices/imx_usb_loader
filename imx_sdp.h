@@ -80,6 +80,24 @@ struct sdp_dev {
 #define HAB_SECMODE_PROD 0x12343412
 #define HAB_SECMODE_DEV  0x56787856
 
+#define SDP_READ_REG     0x0101
+#define SDP_WRITE_REG    0x0202
+#define SDP_WRITE_FILE   0x0404
+#define SDP_ERROR_STATUS 0x0505
+#define SDP_WRITE_DCD    0x0a0a
+#define SDP_JUMP_ADDRESS 0x0b0b
+
+#pragma pack (1)
+struct sdp_command {
+	uint16_t cmd;
+	uint32_t addr;
+	uint8_t format;
+	uint32_t cnt;
+	uint32_t data;
+	uint8_t rsvd;
+};
+#pragma pack ()
+
 int get_val(const char** pp, int base);
 const unsigned char *move_string(unsigned char *dest, const unsigned char *src, unsigned cnt);
 void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr);

@@ -537,29 +537,29 @@ struct old_app_header {
 	uint32_t app_dest_ptr;
 };
 
-#define V(a) (((a)>>24)&0xff),(((a)>>16)&0xff),(((a)>>8)&0xff), ((a)&0xff)
-
+#if defined(__BYTE_ORDER) && __BYTE_ORDER == __BIG_ENDIAN || defined(__BIG_ENDIAN__)
+#define BE32(a) (a)
+#else
+#define BE32(a) (((a & 0xff000000)>>24) | ((a & 0x00ff0000)>>8) | ((a & 0x0000ff00)<<8) | ((a & 0x000000ff)<<24))
+#endif
 
 static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, unsigned cnt)
 {
-//							address, format, data count, data, type
-	static unsigned char read_reg_command[] = {1,1, V(0),   0x20, V(0x00000004), V(0), 0x00};
+	struct sdp_command read_reg_command = {
+		.cmd = SDP_READ_REG,
+		.addr = BE32(addr),
+		.format = 0x20,
+		.cnt = BE32(cnt),
+		.data = BE32(0),
+		.rsvd = 0x00};
 	int retry = 0;
 	int last_trans;
 	int err;
 	int rem;
 	unsigned char tmp[64];
-	read_reg_command[2] = (unsigned char)(addr >> 24);
-	read_reg_command[3] = (unsigned char)(addr >> 16);
-	read_reg_command[4] = (unsigned char)(addr >> 8);
-	read_reg_command[5] = (unsigned char)(addr);
 
-	read_reg_command[7] = (unsigned char)(cnt >> 24);
-	read_reg_command[8] = (unsigned char)(cnt >> 16);
-	read_reg_command[9] = (unsigned char)(cnt >> 8);
-	read_reg_command[10] = (unsigned char)(cnt);
 	for (;;) {
-		err = dev->transfer(dev, 1, read_reg_command, 16, 0, &last_trans);
+		err = dev->transfer(dev, 1, (char *)&read_reg_command, sizeof(read_reg_command), 0, &last_trans);
 		if (!err)
 			break;
 		printf("read_reg_command err=%i, last_trans=%i\n", err, last_trans);
@@ -598,26 +598,22 @@ static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, 
 	return err;
 }
 
-//						address, format, data count, data, type
-static unsigned char write_reg_command[] = {2,2, V(0),   0x20, V(0x00000004), V(0), 0x00};
 static int write_memory(struct sdp_dev *dev, unsigned addr, unsigned val)
 {
+	struct sdp_command write_reg_command = {
+		.cmd = SDP_WRITE_REG,
+		.addr = BE32(addr),
+		.format = 0x20,
+		.cnt = BE32(0x00000004),
+		.data = BE32(val),
+		.rsvd = 0x00};
 	int retry = 0;
 	int last_trans;
 	int err = 0;
 	unsigned char tmp[64];
-	write_reg_command[2] = (unsigned char)(addr >> 24);
-	write_reg_command[3] = (unsigned char)(addr >> 16);
-	write_reg_command[4] = (unsigned char)(addr >> 8);
-	write_reg_command[5] = (unsigned char)(addr);
-
-	write_reg_command[11] = (unsigned char)(val >> 24);
-	write_reg_command[12] = (unsigned char)(val >> 16);
-	write_reg_command[13] = (unsigned char)(val >> 8);
-	write_reg_command[14] = (unsigned char)(val);
 
 	for (;;) {
-		err = dev->transfer(dev, 1, write_reg_command, 16, 0, &last_trans);
+		err = dev->transfer(dev, 1, (char *)&write_reg_command, sizeof(write_reg_command), 0, &last_trans);
 		if (!err)
 			break;
 		printf("write_reg_command err=%i, last_trans=%i\n", err, last_trans);
@@ -1084,7 +1080,13 @@ int get_dl_start(struct sdp_dev *dev, unsigned char *p, unsigned char *file_star
 
 int do_status(struct sdp_dev *dev)
 {
-	static const unsigned char statusCommand[]={5,5,0,0,0,0, 0, 0,0,0,0, 0,0,0,0, 0};
+	struct sdp_command status_command = {
+		.cmd = SDP_ERROR_STATUS,
+		.addr = 0,
+		.format = 0,
+		.cnt = 0,
+		.data = 0,
+		.rsvd = 0};
 
 	int last_trans;
 	unsigned int *hab_security;
@@ -1094,7 +1096,7 @@ int do_status(struct sdp_dev *dev)
 	int cnt = 64;
 
 	for (;;) {
-		err = dev->transfer(dev, 1, (unsigned char*)statusCommand, 16, 0, &last_trans);
+		err = dev->transfer(dev, 1, (char *)&status_command, sizeof(status_command), 0, &last_trans);
 		dbg_printf("report 1, wrote %i bytes, err=%i\n", last_trans, err);
 		memset(tmp, 0, sizeof(tmp));
 
@@ -1183,8 +1185,13 @@ int load_file(struct sdp_dev *dev,
 		unsigned char *p, int cnt, unsigned char *buf, unsigned buf_cnt,
 		unsigned dladdr, unsigned fsize, unsigned char type, FILE* xfile)
 {
-//							address, format, data count, data, type
-	static unsigned char dlCommand[] =    {0x04,0x04, V(0),  0x00, V(0x00000020), V(0), 0xaa};
+	struct sdp_command dl_command = {
+		.cmd = SDP_WRITE_FILE,
+		.addr = BE32(dladdr),
+		.format = 0,
+		.cnt = BE32(fsize),
+		.data = 0,
+		.rsvd = type};
 	unsigned int *status;
 	int last_trans, err;
 	int retry = 0;
@@ -1192,22 +1199,11 @@ int load_file(struct sdp_dev *dev,
 	int max = dev->max_transfer;
 	unsigned char tmp[64];
 
-	dlCommand[2] = (unsigned char)(dladdr>>24);
-	dlCommand[3] = (unsigned char)(dladdr>>16);
-	dlCommand[4] = (unsigned char)(dladdr>>8);
-	dlCommand[5] = (unsigned char)(dladdr);
-
-	dlCommand[7] = (unsigned char)(fsize>>24);
-	dlCommand[8] = (unsigned char)(fsize>>16);
-	dlCommand[9] = (unsigned char)(fsize>>8);
-	dlCommand[10] = (unsigned char)(fsize);
-	dlCommand[15] =  type;
-
 	for (;;) {
-		err = dev->transfer(dev, 1, dlCommand, 16, 0, &last_trans);
+		err = dev->transfer(dev, 1, (char *)&dl_command, sizeof(dl_command), 0, &last_trans);
 		if (!err)
 			break;
-		printf("dlCommand err=%i, last_trans=%i\n", err, last_trans);
+		printf("dl_command err=%i, last_trans=%i\n", err, last_trans);
 		if (retry > 5)
 			return -4;
 		retry++;
@@ -1293,7 +1289,14 @@ int load_file(struct sdp_dev *dev,
 int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 {
 //							address, format, data count, data, type
-	static unsigned char jump_command[] = {0x0b,0x0b, V(0),  0x00, V(0x00000000), V(0), 0x00};
+	//static unsigned char jump_command[] = {0x0b,0x0b, V(0),  0x00, V(0x00000000), V(0), 0x00};
+	struct sdp_command jump_command = {
+		.cmd = SDP_JUMP_ADDRESS,
+		.addr = 0,
+		.format = 0,
+		.cnt = 0,
+		.data = 0,
+		.rsvd = 0x00};
 
 	int ret;
 	FILE* xfile;
@@ -1439,14 +1442,11 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 	}
 	if (dev->mode == MODE_HID) if (type == FT_APP) {
 		printf("jumping to 0x%08x\n", header_addr);
-		jump_command[2] = (unsigned char)(header_addr >> 24);
-		jump_command[3] = (unsigned char)(header_addr >> 16);
-		jump_command[4] = (unsigned char)(header_addr >> 8);
-		jump_command[5] = (unsigned char)(header_addr);
+		jump_command.addr = BE32(header_addr);
 		//Any command will initiate jump for mx51, jump address is ignored by mx51
 		retry = 0;
 		for (;;) {
-			err = dev->transfer(dev, 1, jump_command, 16, 0, &last_trans);
+			err = dev->transfer(dev, 1, (char *)&jump_command, sizeof(jump_command), 0, &last_trans);
 			if (!err)
 				break;
 			printf("jump_command err=%i, last_trans=%i\n", err, last_trans);
