@@ -35,11 +35,8 @@
 
 #include "imx_sdp.h"
 
-#ifdef DEBUG
-#define dbg_printf(fmt, args...)	fprintf(stderr, fmt, ## args)
-#else
-#define dbg_printf(fmt, args...)    /* Don't do anything in release builds */
-#endif
+extern int debugmode;
+#define dbg_printf(fmt, args...)	do{ if(debugmode) fprintf(stderr, fmt, ## args); } while(0)
 
 struct mach_id;
 struct mach_id {
@@ -351,6 +348,7 @@ void print_usage(void)
 		"Where OPTIONS are\n"
 		"   -h --help		Show this help\n"
 		"   -v --verify		Verify downloaded data\n"
+		"   -d --debugmode	Enable debug logs\n"
 		"   -c --configdir=DIR	Reading configuration directory from non standard\n"
 		"			directory.\n"
 		"\n"
@@ -369,18 +367,22 @@ int parse_opts(int argc, char * const *argv, char const **configdir,
 
 	static struct option long_options[] = {
 		{"help",	no_argument, 		0, 'h' },
+		{"debugmode",	no_argument, 		0, 'd' },
 		{"verify",	no_argument, 		0, 'v' },
 		{"configdir",	required_argument, 	0, 'c' },
 		{0,		0,			0, 0 },
 	};
 
-	while ((c = getopt_long(argc, argv, "+hvc:", long_options, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "+hdvc:", long_options, NULL)) != -1) {
 		switch (c)
 		{
 		case 'h':
 		case '?':
 			print_usage();
 			return -1;
+		case 'd':
+			debugmode = 1; /* global extern */
+			break;
 		case 'v':
 			*verify = 1;
 			break;

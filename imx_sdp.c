@@ -40,25 +40,22 @@
 
 
 #include "imx_sdp.h"
+int debugmode = 0;
 
 #ifndef WIN32
 
-#ifdef DEBUG
-#define dbg_printf(fmt, args...)	fprintf(stderr, fmt, ## args)
-#else
-#define dbg_printf(fmt, args...)    /* Don't do anything in release builds */
-#endif
+#define dbg_printf(fmt, args...)	do{ if(debugmode) fprintf(stderr, fmt, ## args); } while(0)
 #else
 
 #ifdef DEBUG
 #define dbg_printf(fmt, ...)	fprintf(stderr, fmt, __VA_ARGS__)
 #else
 #define dbg_printf(fmt, ...)    /* Don't do anything in release builds */
+#endif
 
 #define R_OK	04
 #define access(filename,oflag)	_access(filename,oflag)
 
-#endif
 
 #define usleep(us)	Sleep((us+999)/1000)
 #endif
@@ -1115,7 +1112,7 @@ int do_status(struct sdp_dev *dev)
 	}
 
 	hab_security = (unsigned int *)tmp;
-	printf("HAB security state: %s (0x%08x)\n", *hab_security == 0x12343412 ?
+	printf("HAB security state: %s (0x%08x)\n", *hab_security == HAB_SECMODE_PROD ?
 			"production mode" : "development mode", *hab_security);
 
 	if (dev->mode == MODE_HID) {
