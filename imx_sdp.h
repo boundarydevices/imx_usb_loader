@@ -77,6 +77,9 @@ struct sdp_dev {
 	void *priv;
 };
 
+#define HAB_SECMODE_PROD 0x12343412
+#define HAB_SECMODE_DEV  0x56787856
+
 int get_val(const char** pp, int base);
 const unsigned char *move_string(unsigned char *dest, const unsigned char *src, unsigned cnt);
 void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr);
