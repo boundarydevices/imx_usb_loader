@@ -15,12 +15,13 @@ else
 USBCFLAGS = -I/usr/include/libusb-1.0
 USBLDFLAGS = -L/usr/lib -lusb-1.0
 endif
+CONFCPPFLAGS = -DSYSCONFDIR='"$(sysconfdir)"'
 
 imx_usb.o : imx_usb.c
-	$(CC) -c $*.c -o $@ -Wstrict-prototypes -Wno-trigraphs -pipe -ggdb $(USBCFLAGS) $(CFLAGS)
+	$(CC) -c $*.c -o $@ -Wstrict-prototypes -Wno-trigraphs -pipe -ggdb $(USBCFLAGS) $(CFLAGS) $(CONFCPPFLAGS)
 
 %.o : %.c
-	$(CC) -c $*.c -o $@ -Wstrict-prototypes -Wno-trigraphs -pipe -ggdb $(CFLAGS)
+	$(CC) -c $*.c -o $@ -Wstrict-prototypes -Wno-trigraphs -pipe -ggdb $(CFLAGS) $(CONFCPPFLAGS)
 
 imx_usb: imx_usb.o imx_sdp.o
 	$(CC) -o $@ $@.o imx_sdp.o $(LDFLAGS) $(USBLDFLAGS)
