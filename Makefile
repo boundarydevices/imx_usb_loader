@@ -1,9 +1,9 @@
 all: imx_usb imx_uart
 
-DESTDIR ?= ""
-prefix ?= "/usr"
-bindir ?= "$(prefix)/bin"
-sysconfdir ?= "$(prefix)/etc"
+DESTDIR ?=
+prefix ?= /usr
+bindir ?= $(prefix)/bin
+sysconfdir ?= $(prefix)/etc
 
 BUILDHOST := $(shell uname -s)
 BUILDHOST := $(patsubst CYGWIN_%,CYGWIN,$(BUILDHOST))
@@ -29,11 +29,11 @@ imx_uart: imx_uart.o imx_sdp.o
 	$(CC) -o $@ $@.o imx_sdp.o $(LDFLAGS)
 
 install: imx_usb imx_uart
-	mkdir -p $(DESTDIR)$(sysconfdir)/imx-loader.d/
-	install -m644 *.conf $(DESTDIR)$(sysconfdir)/imx-loader.d/
-	mkdir -p $(DESTDIR)$(bindir)
-	install -m755 imx_usb $(DESTDIR)$(bindir)/imx_usb
-	install -m755 imx_uart $(DESTDIR)$(bindir)/imx_uart
+	mkdir -p '$(DESTDIR)$(sysconfdir)/imx-loader.d/'
+	install -m644 *.conf '$(DESTDIR)$(sysconfdir)/imx-loader.d/'
+	mkdir -p '$(DESTDIR)$(bindir)'
+	install -m755 imx_usb '$(DESTDIR)$(bindir)/imx_usb'
+	install -m755 imx_uart '$(DESTDIR)$(bindir)/imx_uart'
 
 clean:
 	rm -f imx_usb imx_uart imx_usb.o imx_uart.o imx_sdp.o
