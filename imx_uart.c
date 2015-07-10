@@ -98,6 +98,7 @@ int uart_connect(int *uart_fd, char const *tty, int usertscts, DCB* orig)
 {
 	int err = 0, count = 0;
 	int i;
+	int retry = 10;
 #ifndef WIN32
 	int flags = O_RDWR | O_NOCTTY | O_SYNC;
 	struct termios key;
@@ -135,10 +136,10 @@ int uart_connect(int *uart_fd, char const *tty, int usertscts, DCB* orig)
 	key.c_cflag |= B115200;
 
 	// Enable blocking read, 0.5s timeout...
-	key.c_cc[VMIN] = 1;
+	key.c_lflag &= ~ICANON; // Set non-canonical mode
 	key.c_cc[VTIME] = 5;
 
-	err = tcsetattr(*uart_fd, TCSAFLUSH, &key);
+	err = tcsetattr(*uart_fd, TCSANOW, &key);
 	if (err < 0) {
 		fprintf(stdout, "tcsetattr() failed: %s\n", strerror(errno));
 		close(*uart_fd);
@@ -197,34 +198,56 @@ int uart_connect(int *uart_fd, char const *tty, int usertscts, DCB* orig)
 
 #endif
 	// Association phase, send and receive 0x23454523
-	printf("starting associating phase\n");
-	write(*uart_fd, magic, sizeof(magic));
+	printf("starting associating phase");
+	while(retry--) {
+		// Flush again before retring
+		err = tcflush(*uart_fd, TCIOFLUSH);
 
-#ifndef WIN32
-	err = tcflush(*uart_fd, TCIOFLUSH);
-#endif
-	
-	buf = magic_response;
-	while (count < 4) {
-		err = read(*uart_fd, buf, 4 - count);
+		write(*uart_fd, magic, sizeof(magic));
 
-		if (err < 0) {
-			fprintf(stderr, "magic timeout, make sure the device "
-			       "is in recovery mode\n");
-			return err;
+		buf = magic_response;
+
+		count = 0;
+		while (count < 4) {
+			err = read(*uart_fd, buf, 4 - count);
+
+			/* read timeout.. */
+			if (err <= 0)
+				break;
+
+			count += err;
+			buf += err;
 		}
 
-		count += err;
-		buf += err;
+		if (!memcmp(magic, magic_response, sizeof(magic_response)))
+			break;
+
+		printf(".");
+		fflush(stdout);
+#ifdef WIN32
+		Sleep(1000);
+#else
+		// Flush again before retring
+		err = tcflush(*uart_fd, TCIOFLUSH);
+		sleep(1);
+#endif
 	}
+
+	printf("\n");
+	fflush(stdout);
+
+	if (!retry) {
+		fprintf(stderr, "associating phase failed, make sure the device"
+		       " is in recovery mode\n");
+		return -2;
+	}
+
 	err = 0;
 
-	for (i = 0; i < sizeof(magic); i++) {
-		if (magic[i] != magic_response[i]) {
-			fprintf(stderr, "magic missmatch, response was 0x%08x\n",
-					*(uint32_t *)magic_response);
-			return -1;
-		}
+	if (memcmp(magic, magic_response, sizeof(magic_response))) {
+		fprintf(stderr, "magic missmatch, response was 0x%08x\n",
+				*(uint32_t *)magic_response);
+		return -3;
 	}
 
 	fprintf(stderr, "association phase succeeded, response was 0x%08x\n",
@@ -343,7 +366,7 @@ int parse_opts(int argc, char * const *argv, char const **ttyfile,
 int main(int argc, char * const argv[])
 {
 	struct sdp_dev *p_id;
-	int err;
+	int err = 0;
 	int config = 0;
 	int verify = 0;
 	int usertscts = 1;
@@ -435,5 +458,5 @@ int main(int argc, char * const argv[])
 
 out:
 	uart_close(&uart_fd, &orig);
-	return 0;
+	return err;
 }
