@@ -698,25 +698,73 @@ static int write_dcd_table_ivt(struct sdp_dev *dev, struct ivt_header *hdr, unsi
 	dcd += 4;
 	while (dcd < dcd_end) {
 		unsigned s_length = (dcd[1] << 8) + dcd[2];
+		unsigned sub_tag = (dcd[0] << 24) + (dcd[3] & 0x7);
+		unsigned flags = (dcd[3] & 0xf8);
 		unsigned char *s_end = dcd + s_length;
 		printf("sub dcd length %x\n", s_length);
-		if ((dcd[0] != 0xcc) || (dcd[3] != 0x04)) {
-			printf("Unknown sub tag\n");
-			return -1;
+		switch(sub_tag) {
+		/* Write Data Command */
+		case 0xcc000004:
+			if (flags & 0xe8) {
+				printf("error: Write Data Command with unsupported flags, flags %x.\n", flags);
+				return -1;
+			}
+			dcd += 4;
+			if (s_end > dcd_end) {
+				printf("error s_end(%p) > dcd_end(%p)\n", s_end, dcd_end);
+				return -1;
+			}
+			while (dcd < s_end) {
+				unsigned addr = (dcd[0] << 24) + (dcd[1] << 16) | (dcd[2] << 8) + dcd[3];
+				unsigned val = (dcd[4] << 24) + (dcd[5] << 16) | (dcd[6] << 8) + dcd[7];
+				dcd += 8;
+//				printf("*0x%08x = 0x%08x\n", addr, val);
+				err = write_memory(dev, addr, val);
+				if (err < 0)
+					return err;
+			}
+			break;
+		/* Check Data Command */
+		case 0xcf000004: {
+			unsigned addr, count, mask, val;
+			dcd += 4;
+			addr = (dcd[0] << 24) + (dcd[1] << 16) | (dcd[2] << 8) + dcd[3];
+			mask = (dcd[4] << 24) + (dcd[5] << 16) | (dcd[6] << 8) + dcd[7];
+			count = (dcd[8] << 24) + (dcd[9] << 16) | (dcd[10] << 8) + dcd[11];
+			switch (s_length) {
+			case 12:
+				dcd += 8;
+				break;
+			case 16:
+				dcd += 12;
+				break;
+			default:
+				printf("error s_end(%p) > dcd_end(%p)\n", s_end, dcd_end);
+				return -1;
+			}
+			while ((s_length == 12) || count-- ) {
+				err = read_memory(dev, addr, (unsigned char*)&val, 4);
+				if (err < 0)
+					return err;
+				dbg_printf("Check Data Command, at addr %x, val %x, mask %x\n",addr, val, mask);
+				if ((flags == 0x00) && ((val & mask) == 0) )
+					break;
+				else if ((flags == 0x08) && ((val & mask) != mask) )
+					break;
+				else if ((flags == 0x10) && ((val & mask) == mask) )
+					break;
+				else if ((flags == 0x18) && ((val & mask) != 0) )
+					break;
+				else if (flags & 0xe0) {
+					printf("error: Check Data Command with unsupported flags, flags %x.\n", flags);
+					return -1;
+				}
+			}
+			break;
 		}
-		dcd += 4;
-		if (s_end > dcd_end) {
-			printf("error s_end(%p) > dcd_end(%p)\n", s_end, dcd_end);
-			return -1;
-		}
-		while (dcd < s_end) {
-			unsigned addr = (dcd[0] << 24) + (dcd[1] << 16) | (dcd[2] << 8) + dcd[3];
-			unsigned val = (dcd[4] << 24) + (dcd[5] << 16) | (dcd[6] << 8) + dcd[7];
-			dcd += 8;
-//			printf("*0x%08x = 0x%08x\n", addr, val);
-			err = write_memory(dev, addr, val);
-			if (err < 0)
-				return err;
+		default:
+			printf("Unknown sub tag, dcd[0] 0x%2x, dcd[3] 0x%2x\n", dcd[0], dcd[3]);
+					return -1;
 		}
 	}
 	return err;
