@@ -595,6 +595,7 @@ static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, 
 		dest += last_trans;
 		rem -= last_trans;
 	}
+	dbg_printf("%s: %d addr=%08x, val=%02x %02x %02x %02x\n", __func__, err, addr, dest[0], dest[1], dest[2], dest[3]);
 	return err;
 }
 
@@ -612,6 +613,7 @@ static int write_memory(struct sdp_dev *dev, unsigned addr, unsigned val)
 	int err = 0;
 	unsigned char tmp[64];
 
+	dbg_printf("%s: addr=%08x, val=%08x\n", __func__, addr, val);
 	for (;;) {
 		err = dev->transfer(dev, 1, (char *)&write_reg_command, sizeof(write_reg_command), 0, &last_trans);
 		if (!err)
@@ -718,7 +720,7 @@ static int write_dcd_table_ivt(struct sdp_dev *dev, struct ivt_header *hdr, unsi
 				unsigned addr = (dcd[0] << 24) + (dcd[1] << 16) | (dcd[2] << 8) + dcd[3];
 				unsigned val = (dcd[4] << 24) + (dcd[5] << 16) | (dcd[6] << 8) + dcd[7];
 				dcd += 8;
-//				printf("*0x%08x = 0x%08x\n", addr, val);
+				dbg_printf("write data *0x%08x = 0x%08x\n", addr, val);
 				err = write_memory(dev, addr, val);
 				if (err < 0)
 					return err;
@@ -730,23 +732,24 @@ static int write_dcd_table_ivt(struct sdp_dev *dev, struct ivt_header *hdr, unsi
 			dcd += 4;
 			addr = (dcd[0] << 24) + (dcd[1] << 16) | (dcd[2] << 8) + dcd[3];
 			mask = (dcd[4] << 24) + (dcd[5] << 16) | (dcd[6] << 8) + dcd[7];
-			count = (dcd[8] << 24) + (dcd[9] << 16) | (dcd[10] << 8) + dcd[11];
+			count = 10000;
 			switch (s_length) {
 			case 12:
 				dcd += 8;
 				break;
 			case 16:
+				count = (dcd[8] << 24) + (dcd[9] << 16) | (dcd[10] << 8) + dcd[11];
 				dcd += 12;
 				break;
 			default:
 				printf("error s_end(%p) > dcd_end(%p)\n", s_end, dcd_end);
 				return -1;
 			}
-			while ((s_length == 12) || count-- ) {
+			dbg_printf("Check Data Command, at addr %x, mask %x\n",addr, mask);
+			while (count) {
 				err = read_memory(dev, addr, (unsigned char*)&val, 4);
 				if (err < 0)
 					return err;
-				dbg_printf("Check Data Command, at addr %x, val %x, mask %x\n",addr, val, mask);
 				if ((flags == 0x00) && ((val & mask) == 0) )
 					break;
 				else if ((flags == 0x08) && ((val & mask) != mask) )
@@ -759,7 +762,11 @@ static int write_dcd_table_ivt(struct sdp_dev *dev, struct ivt_header *hdr, unsi
 					printf("error: Check Data Command with unsupported flags, flags %x.\n", flags);
 					return -1;
 				}
+				count--;
 			}
+			if (!count)
+				printf("!!!Check Data Command(%x) expired without condition met @%x=%x mask %x\n", flags, addr, val, mask);
+
 			break;
 		}
 		default:
