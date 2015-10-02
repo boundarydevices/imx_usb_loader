@@ -261,6 +261,12 @@ void parse_file_work(struct sdp_work *curr, const char *filename, const char *p)
 			curr->clear_dcd = 1;
 //			printf("clear_dcd\n");
 		}
+		if (strncmp(p, "no_clear_boot_data", 18) == 0) {
+			p += 18;
+			p = skip(p,',');
+			curr->no_clear_boot_data = 1;
+//			printf("clear_dcd\n");
+		}
 		if (strncmp(p, "plug", 4) == 0) {
 			p += 4;
 			p = skip(p,',');
@@ -1091,7 +1097,7 @@ int clear_dcd_ptr(struct sdp_dev *dev, unsigned char *p, unsigned char *file_sta
 //#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
 #endif
 
-int get_dl_start(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start, unsigned cnt, unsigned *dladdr, unsigned *max_length, unsigned *plugin, unsigned *header_addr)
+int get_dl_start(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start, unsigned cnt, unsigned *dladdr, unsigned *max_length, unsigned *plugin, unsigned *header_addr, unsigned int no_clear_boot_data)
 {
 	unsigned char* file_end = file_start + cnt;
 	switch (dev->header_type) {
@@ -1124,9 +1130,10 @@ int get_dl_start(struct sdp_dev *dev, unsigned char *p, unsigned char *file_star
 		*max_length = ((struct boot_data *)bd)->image_len;
 		*plugin = ((struct boot_data *)bd)->plugin;
 		((struct boot_data *)bd)->plugin = 0;
-#if 1
-		hdr->boot_data_ptr = 0;
-#endif
+		if (!no_clear_boot_data) {
+			printf("Setting boot_data_ptr to 0\n");
+			hdr->boot_data_ptr = 0;
+		}
 		break;
 	}
 	}
@@ -1193,7 +1200,8 @@ int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 	while (header_offset < header_max) {
 //		printf("header_offset=%x\n", header_offset);
 		if (is_header(dev, p)) {
-			ret = get_dl_start(dev, p, buf, cnt, p_dladdr, p_max_length, p_plugin, p_header_addr);
+			ret = get_dl_start(dev, p, buf, cnt, p_dladdr, p_max_length, p_plugin,
+					p_header_addr, curr->no_clear_boot_data);
 			if (ret < 0) {
 				printf("!!get_dl_start returned %i\n", ret);
 				return ret;
