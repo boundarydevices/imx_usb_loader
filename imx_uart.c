@@ -28,9 +28,7 @@
 #include <Windows.h>
 #endif
 #include <ctype.h>
-#ifndef WIN32
-#include <sys/io.h>
-#else
+#ifdef WIN32
 #include <io.h>
 #endif
 #include <errno.h>
@@ -50,7 +48,6 @@
 #include <termios.h>
 
 #include <sys/ioctl.h>
-#include <linux/serial.h>
 #else
 
 #define open(filename,oflag)	_open(filename,oflag)
@@ -102,7 +99,6 @@ int uart_connect(int *uart_fd, char const *tty, int usertscts, DCB* orig)
 #ifndef WIN32
 	int flags = O_RDWR | O_NOCTTY | O_SYNC;
 	struct termios key;
-	struct serial_struct ser_info; 
 #else
 	int flags = O_RDWR | _O_BINARY;
 	DCB dcb;

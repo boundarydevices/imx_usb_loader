@@ -28,9 +28,7 @@
 #include <stddef.h>
 #endif
 #include <ctype.h>
-#ifndef WIN32
-#include <sys/io.h>
-#else
+#ifdef WIN32
 #include <io.h>
 #endif
 #include <errno.h>
