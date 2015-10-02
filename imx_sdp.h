@@ -41,7 +41,8 @@ struct sdp_work {
 	struct mem_work *mem;
 	unsigned char filename[256];
 	unsigned char dcd;
-	unsigned char clear_dcd;	//means clear dcd_ptr
+	unsigned char clear_dcd;		//means clear dcd_ptr
+	unsigned char no_clear_boot_data;	// 1->don't clear boot data ptr
 	unsigned char plug;
 #define J_ADDR		1
 #define J_HEADER	2
