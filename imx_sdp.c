@@ -747,9 +747,12 @@ static int write_dcd_table_ivt(struct sdp_dev *dev, struct ivt_header *hdr, unsi
 			}
 			dbg_printf("Check Data Command, at addr %x, mask %x\n",addr, mask);
 			while (count) {
+				val = 0;
 				err = read_memory(dev, addr, (unsigned char*)&val, 4);
-				if (err < 0)
+				if (err < 0) {
+					printf("Check Data Command(%x) error(%d) @%x=%x mask %x\n", flags, err, addr, val, mask);
 					return err;
+				}
 				if ((flags == 0x00) && ((val & mask) == 0) )
 					break;
 				else if ((flags == 0x08) && ((val & mask) != mask) )
@@ -766,6 +769,8 @@ static int write_dcd_table_ivt(struct sdp_dev *dev, struct ivt_header *hdr, unsi
 			}
 			if (!count)
 				printf("!!!Check Data Command(%x) expired without condition met @%x=%x mask %x\n", flags, addr, val, mask);
+			else
+				printf("Check Data Command(%x) success @%x=%x mask %x\n", flags, addr, val, mask);
 
 			break;
 		}
