@@ -11,11 +11,11 @@ BUILDHOST := $(patsubst CYGWIN_%,CYGWIN,$(BUILDHOST))
 CFLAGS := -Wall -Wno-pointer-sign $(CFLAGS)
 
 ifneq ($(BUILDHOST),CYGWIN)
-USBCFLAGS = `pkg-config --cflags libusb-1.0`
-USBLDFLAGS = `pkg-config --libs libusb-1.0`
+USBCFLAGS = `pkg-config --cflags libusb-1.0 hidapi`
+USBLDFLAGS = `pkg-config --libs libusb-1.0 hidapi`
 else
-USBCFLAGS = -I/usr/include/libusb-1.0
-USBLDFLAGS = -L/usr/lib -lusb-1.0
+USBCFLAGS = -I/usr/include/libusb-1.0 -I/usr/include/hidapi
+USBLDFLAGS = -L/usr/lib -lusb-1.0 -lhidapi
 endif
 CONFCPPFLAGS = -DSYSCONFDIR='"$(sysconfdir)"'
 
