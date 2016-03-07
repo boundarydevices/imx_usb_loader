@@ -13,6 +13,7 @@ The utility support USB and UART as serial link.
 ## Installation
 1. Clone
 1. Make sure libusb (1.0) is available
+1. Make sure that libhid is available (http://www.signal11.us/oss/hidapi/)
 1. Compile using make
 
 Two binaries are available, imx_usb and imx_uart for the two supported
