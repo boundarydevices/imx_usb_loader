@@ -8,6 +8,8 @@ sysconfdir ?= $(prefix)/etc
 BUILDHOST := $(shell uname -s)
 BUILDHOST := $(patsubst CYGWIN_%,CYGWIN,$(BUILDHOST))
 
+CFLAGS := -Wall -Wno-pointer-sign $(CFLAGS)
+
 ifneq ($(BUILDHOST),CYGWIN)
 USBCFLAGS = `pkg-config --cflags libusb-1.0`
 USBLDFLAGS = `pkg-config --libs libusb-1.0`

@@ -454,7 +454,7 @@ int main(int argc, char * const argv[])
 	if (!h)
 		goto out;
 
-	// Get machine specific configuration file..
+	// Get machine specific configuration file.
 	conf = conf_file_name(mach->file_name, base_path, conf_path);
 	if (conf == NULL)
 		goto out;
