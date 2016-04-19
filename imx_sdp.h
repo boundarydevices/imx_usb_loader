@@ -42,7 +42,7 @@ struct sdp_work {
 	unsigned char filename[256];
 	unsigned char dcd;
 	unsigned char clear_dcd;		//means clear dcd_ptr
-	unsigned char no_clear_boot_data;	// 1->don't clear boot data ptr
+	unsigned char clear_boot_data;		//means clear boot data ptr
 	unsigned char plug;
 #define J_ADDR		1
 #define J_HEADER	2
@@ -80,6 +80,12 @@ struct sdp_dev {
 
 #define HAB_SECMODE_PROD 0x12343412
 #define HAB_SECMODE_DEV  0x56787856
+
+/*
+ * Section 8.7.2 of the i.MX6DQ/UL/SoloX RM:
+ * The maximum size of the DCD limited to 1768 bytes.
+ */
+#define HAB_MAX_DCD_SIZE 1768
 
 #define SDP_READ_REG     0x0101
 #define SDP_WRITE_REG    0x0202
