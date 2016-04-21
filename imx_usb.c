@@ -30,7 +30,8 @@
 #include <stdint.h>
 #include <getopt.h>
 
-#include <libusb-1.0/libusb.h>
+#include <libusb.h>
+#include <hidapi.h>
 
 #include "imx_sdp.h"
 
@@ -44,6 +45,9 @@ struct mach_id {
 	unsigned short pid;
 	char file_name[256];
 };
+
+typedef int (*usb_handle_open)(unsigned short vid, unsigned short pid, struct sdp_dev *p_id);
+typedef void (*usb_handle_close)(struct sdp_dev *p_id);
 
 static void print_devs(libusb_device **devs)
 {
@@ -84,16 +88,6 @@ static void print_devs(libusb_device **devs)
 		libusb_free_config_descriptor(config);
 	}
 }
-/*
-	{0x066f, 0x3780, "mx23", 0, 1024, MODE_HID, HDR_NONE},
-	{0x15a2, 0x004f, "mx28", 0, 1024, MODE_HID, HDR_NONE},
-	{0x15a2, 0x0052, "mx50", 0, 1024, MODE_HID, HDR_MX53},
-	{0x15a2, 0x0054, "mx6", 0x10000000, 1024, MODE_HID, HDR_MX53},
-	{0x15a2, 0x0041, "mx51", 0x90000000, 64, MODE_BULK, HDR_MX51},
-	{0x15a2, 0x004e, "mx53", 0x70000000, 512, MODE_BULK, HDR_MX53},
-	{0x066f, 0x37ff, "linux gadget", 512, MODE_BULK, HDR_NONE},
-};
-*/
 
 /*
  * Parse USB specific machine configuration
@@ -189,6 +183,31 @@ static libusb_device *find_imx_dev(libusb_device **devs, struct mach_id **pp_id,
 	return NULL;
 }
 
+static int find_imx_mach(struct mach_id **mach, struct mach_id *list)
+{
+	libusb_device **devs;
+	libusb_device *dev;
+	ssize_t cnt;
+
+	cnt = libusb_get_device_list(NULL, &devs);
+	if (cnt < 0) {
+		printf("No USB devices found\n");
+		goto err;
+	}
+
+	dev = find_imx_dev(devs, mach, list);
+	if (!dev) {
+		printf("Could not find any supported devices\n");
+		goto err;
+	}
+
+	libusb_free_device_list(devs, 1);
+	return 0;
+
+err:
+	libusb_free_device_list(devs, 1);
+	return -1;
+}
 
 // HID Class-Specific Requests values. See section 7.2 of the HID specifications
 #define HID_GET_REPORT			0x01
@@ -224,8 +243,8 @@ static libusb_device *find_imx_dev(libusb_device **devs, struct mach_id **pp_id,
 int transfer_hid(struct sdp_dev *dev, int report, unsigned char *p, unsigned int cnt,
 		unsigned int expected, int* last_trans)
 {
-	int err;
-	struct libusb_device_handle *h = (struct libusb_device_handle *)dev->priv;
+	int err = 0;
+	hid_device *h = (hid_device *)dev->priv;
 	if (cnt > dev->max_transfer)
 		cnt = dev->max_transfer;
 #ifdef DEBUG
@@ -237,28 +256,20 @@ int transfer_hid(struct sdp_dev *dev, int report, unsigned char *p, unsigned int
 	tmp[0] = (unsigned char)report;
 	if (report < 3) {
 		memcpy(&tmp[1], p, cnt);
-		err = libusb_control_transfer(h,
-				CTRL_OUT,
-				HID_SET_REPORT,
-				(HID_REPORT_TYPE_OUTPUT << 8) | report,
-				0,
-				tmp, cnt + 1, 1000);
+		err = hid_write(h, tmp, cnt + 1);
 		*last_trans = (err > 0) ? err - 1 : 0;
 		if (err > 0)
 			err = 0;
 	} else {
 		*last_trans = 0;
 		memset(&tmp[1], 0, cnt);
-		err = libusb_interrupt_transfer(h, 1 + EP_IN, tmp, cnt + 1, last_trans, 1000);
-		dbg_printf("libusb_interrupt_transfer, err=%d, trans=%d\n", err,
-				*last_trans);
-		if (err >= 0) {
-			if (tmp[0] == (unsigned char)report)
-				if (*last_trans > 1) {
-					*last_trans -= 1;
-					memcpy(p, &tmp[1], *last_trans);
-				}
-			else {
+		*last_trans = hid_read_timeout(h, tmp, cnt + 1, 1000);
+		dbg_printf("read_transfer, trans=%d\n", *last_trans);
+		if (*last_trans > 1) {
+			if (tmp[0] == (unsigned char)report) {
+				*last_trans -= 1;
+				memcpy(p, &tmp[1], *last_trans);
+			} else {
 				printf("Unexpected report %i err=%i, cnt=%i, last_trans=%i, %02x %02x %02x %02x\n",
 					tmp[0], err, cnt, *last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
 				err = 0;
@@ -303,36 +314,6 @@ int transfer_bulk(struct sdp_dev *dev, int report, unsigned char *p, unsigned in
 		dump_bytes(p, cnt, 0);
 #endif
 	return err;
-}
-
-libusb_device_handle * open_vid_pid(struct mach_id *mach, struct sdp_dev *p_id)
-{
-	int r = libusb_init(NULL);
-	int err;
-	libusb_device_handle *h;
-	h = libusb_open_device_with_vid_pid(NULL, mach->vid, mach->pid);
-	if (!h) {
-		printf("%s:Could not open device vid=0x%x pid=0x%x\n", __func__,
-				mach->vid, mach->pid);
-		goto err1;
-	}
-	if (libusb_kernel_driver_active(h, 0))
-		libusb_detach_kernel_driver(h, 0);
-	err = libusb_claim_interface(h, 0);
-	if (err) {
-		printf("claim failed, err=%i\n", err);
-		goto err2;
-	}
-	err = do_status(p_id);
-	if (!err)
-		return h;
-	printf("status failed, err=%i\n", err);
-err2:
-	libusb_release_interface(h, 0);
-	libusb_close(h);
-err1:
-	libusb_exit(NULL);
-	return NULL;
 }
 
 #define ARRAY_SIZE(w) sizeof(w)/sizeof(w[0])
@@ -403,92 +384,173 @@ int parse_opts(int argc, char * const *argv, char const **configdir,
 	return 0;
 }
 
+static int imx_open_raw_device(unsigned short vid, unsigned short pid, struct sdp_dev *p_id)
+{
+	int r;
+	int config;
+	libusb_device_handle *h;
+
+	h = libusb_open_device_with_vid_pid(NULL, vid, pid);
+	if (!h) {
+		fprintf(stderr, "Could not open device vid=0x%x pid=0x%x\n", vid, pid);
+		goto err;
+	}
+
+	r = libusb_get_configuration(h, &config);
+	if (r == LIBUSB_SUCCESS)
+		printf("%04x:%04x(%s) bConfigurationValue =%x\n", vid, pid, p_id->name, config);
+
+	// Try to detach kernel driver (under Linux), ignoring errors that are
+	// thrown if the driver is not attached or this is not Linux
+	r = libusb_detach_kernel_driver(h, 0);
+	if ((r != LIBUSB_ERROR_NOT_FOUND) && (r != LIBUSB_ERROR_INVALID_PARAM) &&
+	    (r != LIBUSB_ERROR_NO_DEVICE) && (r != LIBUSB_ERROR_NOT_SUPPORTED)) {
+		fprintf(stderr, "Error detaching kernel USB driver: %s\n", libusb_strerror(r));
+		goto err;
+	}
+
+	r = libusb_claim_interface(h, 0);
+	if (r != LIBUSB_SUCCESS) {
+		fprintf(stderr, "USB device claim failed: %s\n", libusb_strerror(r));
+		goto err;
+	}
+
+	printf("Interface 0 claimed\n");
+	p_id->priv = h;
+	r = do_status(p_id);
+	if (r) {
+		printf("Status update failed\n");
+		goto err2;
+	}
+
+	return 0;
+
+err2:
+	libusb_release_interface(h, 0);
+err:
+	libusb_close(h);
+	return -1;
+}
+
+static int imx_open_hid_device(unsigned short vid, unsigned short pid, struct sdp_dev *p_id)
+{
+	int r;
+	hid_device *h;
+
+	h = hid_open(vid, pid, NULL);
+	if (!h) {
+		fprintf(stderr, "Could not open device vid=0x%x pid=0x%x\n", vid, pid);
+		goto err;
+	}
+
+	printf("USB HID device opened\n");
+	p_id->priv = h;
+	r = do_status(p_id);
+	if (r) {
+		printf("Status update failed\n");
+		goto err2;
+	}
+
+	return 0;
+err2:
+	hid_close(h);
+err:
+	return -1;
+}
+
+void imx_close_raw_device(struct sdp_dev *p_id)
+{
+	libusb_close((libusb_device_handle*)p_id->priv);
+}
+
+void imx_close_hid_device(struct sdp_dev *p_id)
+{
+	hid_close((hid_device*)p_id->priv);
+}
+
+static int imx_init_usb_libs()
+{
+	enum libusb_error r_usb;
+	int r_hid;
+
+	r_usb = libusb_init(NULL);
+	if (r_usb != LIBUSB_SUCCESS) {
+		fprintf(stderr, "Failed to initialize libusb: %s\n", libusb_strerror(r_usb));
+		return -1;
+	}
+
+	r_hid = hid_init();
+	if (r_hid < 0) {
+		fprintf(stderr, "Failed to initialize libhid: error code %d\n", r_hid);
+		return -1;
+	}
+
+	return 0;
+}
+
 int main(int argc, char * const argv[])
 {
 	struct sdp_dev *p_id;
-	struct mach_id *mach;
-	libusb_device **devs;
-	libusb_device *dev;
+	struct mach_id *mach = NULL;
 	int r;
 	int err;
-	ssize_t cnt;
-	libusb_device_handle *h = NULL;
-	int config = 0;
 	int verify = 0;
 	struct sdp_work *curr;
 	struct sdp_work *cmd_head = NULL;
 	char const *conf;
 	char const *base_path = get_base_path(argv[0]);
 	char const *conf_path = SYSCONFDIR "/imx-loader.d/";
+	usb_handle_open open_fn = NULL;
+	usb_handle_close close_fn = NULL;
 
 	err = parse_opts(argc, argv, &conf_path, &verify, &cmd_head);
 	if (err < 0)
-		return -1;
+		return 1;
+
+	r = imx_init_usb_libs();
+	if (r < 0)
+		goto err;
 
 	// Get list of machines...
 	conf = conf_file_name("imx_usb.conf", base_path, conf_path);
 	if (conf == NULL)
-		return -1;
+		goto err;
 
 	struct mach_id *list = parse_imx_conf(conf);
 	if (!list)
-		return -1;
+		goto err;
 
-	r = libusb_init(NULL);
+	// Find first matching machine
+	r = find_imx_mach(&mach, list);
 	if (r < 0)
-		goto out;
+		goto err;
 
-	cnt = libusb_get_device_list(NULL, &devs);
-	if (cnt < 0)
-		goto out;
-
-//	print_devs(devs);
-	dev = find_imx_dev(devs, &mach, list);
-	if (dev) {
-		err = libusb_open(dev, &h);
-		if (err)
-			printf("%s:Could not open device vid=0x%x pid=0x%x err=%d\n", __func__, mach->vid, mach->pid, err);
-	}
-	libusb_free_device_list(devs, 1);
-
-	if (!h)
-		goto out;
-
-	// Get machine specific configuration file..
+	// Get machine specific configuration file.
 	conf = conf_file_name(mach->file_name, base_path, conf_path);
 	if (conf == NULL)
-		goto out;
+		goto err;
 
 	p_id = parse_conf(conf);
 	if (!p_id)
-		goto out;
+		goto err;
 
-	if (p_id->mode == MODE_HID)
+	// libusb doesn't work for HID devices on OSX 10.6+, therefore use
+	// libhid for HID type devices, which works for all platforms.
+	if (p_id->mode == MODE_HID) {
 		p_id->transfer = &transfer_hid;
-	if (p_id->mode == MODE_BULK)
+		open_fn = imx_open_hid_device;
+		close_fn = imx_close_hid_device;
+	} else if (p_id->mode == MODE_BULK) {
 		p_id->transfer = &transfer_bulk;
-
-	// USB private pointer is libusb device handle...
-	p_id->priv = h;
-
-	libusb_get_configuration(h, &config);
-	printf("%04x:%04x(%s) bConfigurationValue =%x\n",
-			mach->vid, mach->pid, p_id->name, config);
-
-	if (libusb_kernel_driver_active(h, 0))
-		 libusb_detach_kernel_driver(h, 0);
-
-	err = libusb_claim_interface(h, 0);
-	if (err) {
-		printf("Claim failed\n");
-		goto out;
+		open_fn = imx_open_raw_device;
+		close_fn = imx_close_raw_device;
+	} else {
+		fprintf(stderr, "Unrecognized mode: %d\n", p_id->mode);
+		goto err;
 	}
-	printf("Interface 0 claimed\n");
-	err = do_status(p_id);
-	if (err) {
-		printf("status failed\n");
-		goto out;
-	}
+
+	if (open_fn(mach->vid, mach->pid, p_id) < 0)
+		goto err;
 
 	// By default, use work from config file...
 	curr = p_id->work;
@@ -497,8 +559,8 @@ int main(int argc, char * const argv[])
 		curr = cmd_head;
 
 	if (curr == NULL) {
-		printf("no job found\n"); 
-		goto out;
+		fprintf(stderr, "No job found\n"); 
+		goto err;
 	}
 
 	while (curr) {
@@ -516,23 +578,8 @@ int main(int argc, char * const argv[])
 			break;
 		err = do_status(p_id);
 		printf("jump_mode %x plug=%i err=%i\n", curr->jump_mode, curr->plug, err);
-		if (err) {
-			int retry;
-			/* Rediscovers device */
-			libusb_release_interface(h, 0);
-			libusb_close(h);
-			libusb_exit(NULL);
-			for (retry = 0; retry < 10; retry++) {
-				printf("sleeping\n");
-				sleep(3);
-				printf("done sleeping\n");
-				h = open_vid_pid(mach, p_id);
-				if (h)
-					break;
-			}
-			if (!h)
-				goto out;
-		}
+		if (err)
+			goto err;
 		if (curr == cmd_head && curr->plug) {
 			curr->plug = 0;
 			continue;
@@ -540,11 +587,12 @@ int main(int argc, char * const argv[])
 		curr = curr->next;
 	}
 
-exit:
-	libusb_release_interface(h, 0);
-out:
-	if (h)
-		libusb_close(h);
-	libusb_exit(NULL);
 	return 0;
+
+err:
+	if (close_fn)
+		close_fn(p_id);
+	hid_exit();
+	libusb_exit(NULL);
+	return 1;
 }
