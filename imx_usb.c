@@ -323,6 +323,7 @@ libusb_device_handle * open_vid_pid(struct mach_id *mach, struct sdp_dev *p_id)
 		printf("claim failed, err=%i\n", err);
 		goto err2;
 	}
+	p_id->priv = h;
 	err = do_status(p_id);
 	if (!err)
 		return h;
