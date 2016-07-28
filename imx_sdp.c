@@ -1482,7 +1482,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 			verify = 2;
 		}
 	}
-	printf("\nloading binary file(%s) to %08x, skip=%x, fsize=%x type=%x\r\n", curr->filename, dladdr, skip, fsize, type);
+	printf("\nloading binary file(%s) to 0x%08x, skip=0x%x, fsize=0x%x type=%x\r\n", curr->filename, dladdr, skip, fsize, type);
 	ret = load_file(dev, p, cnt, buf, BUF_SIZE,
 			dladdr, fsize, type, xfile);
 	if (ret < 0)
