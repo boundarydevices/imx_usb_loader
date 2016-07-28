@@ -1059,7 +1059,7 @@ int perform_dcd(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start
 	{
 		struct ivt_header *hdr = (struct ivt_header *)p;
 		ret = write_dcd(dev, hdr, file_start, cnt);
-		printf("orig dcd_ptr = 0x%02x%02x%02x%02x\n", *(p + 12), *(p + 13), *(p + 14), *(p + 15));
+		printf("orig dcd_ptr = 0x%08x\n", hdr->dcd_ptr);
 		dbg_printf("dcd_ptr=0x%08x\n", hdr->dcd_ptr);
 #if 1
 		hdr->dcd_ptr = 0;
