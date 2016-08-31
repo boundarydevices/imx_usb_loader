@@ -379,7 +379,7 @@ int parse_opts(int argc, char * const *argv, char const **configdir,
 		case 'h':
 		case '?':
 			print_usage();
-			return -1;
+			return 1;
 		case 'd':
 			debugmode = 1; /* global extern */
 			break;
@@ -410,8 +410,7 @@ int main(int argc, char * const argv[])
 	struct mach_id *mach;
 	libusb_device **devs;
 	libusb_device *dev;
-	int r;
-	int err;
+	int err, ret = 0;
 	ssize_t cnt;
 	libusb_device_handle *h = NULL;
 	int config = 0;
@@ -424,45 +423,58 @@ int main(int argc, char * const argv[])
 
 	err = parse_opts(argc, argv, &conf_path, &verify, &cmd_head);
 	if (err < 0)
-		return -1;
+		return EXIT_FAILURE;
+	else if (err > 0)
+		return EXIT_SUCCESS;
 
 	// Get list of machines...
 	conf = conf_file_name("imx_usb.conf", base_path, conf_path);
 	if (conf == NULL)
-		return -1;
+		return EXIT_FAILURE;
 
 	struct mach_id *list = parse_imx_conf(conf);
 	if (!list)
-		return -1;
+		return EXIT_FAILURE;
 
-	r = libusb_init(NULL);
-	if (r < 0)
-		goto out;
+	err = libusb_init(NULL);
+	if (err < 0)
+		return EXIT_FAILURE;
 
 	cnt = libusb_get_device_list(NULL, &devs);
-	if (cnt < 0)
-		goto out;
+	if (cnt < 0) {
+		ret = EXIT_FAILURE;
+		goto out_deinit_usb;
+	}
 
 //	print_devs(devs);
 	dev = find_imx_dev(devs, &mach, list);
-	if (dev) {
-		err = libusb_open(dev, &h);
-		if (err)
-			printf("%s:Could not open device vid=0x%x pid=0x%x err=%d\n", __func__, mach->vid, mach->pid, err);
+	if (!dev) {
+		libusb_free_device_list(devs, 1);
+		ret = EXIT_FAILURE;
+		goto out_deinit_usb;
 	}
-	libusb_free_device_list(devs, 1);
 
-	if (!h)
-		goto out;
+	err = libusb_open(dev, &h);
+	libusb_free_device_list(devs, 1);
+	if (err < 0) {
+		fprintf(stderr, "%s:Could not open device vid=0x%x pid=0x%x err=%d\n",
+			__func__, mach->vid, mach->pid, err);
+		ret = EXIT_FAILURE;
+		goto out_deinit_usb;
+	}
 
 	// Get machine specific configuration file..
 	conf = conf_file_name(mach->file_name, base_path, conf_path);
-	if (conf == NULL)
-		goto out;
+	if (conf == NULL) {
+		ret = EXIT_FAILURE;
+		goto out_close_usb;
+	}
 
 	p_id = parse_conf(conf);
-	if (!p_id)
-		goto out;
+	if (!p_id) {
+		ret = EXIT_FAILURE;
+		goto out_close_usb;
+	}
 
 	if (p_id->mode == MODE_HID)
 		p_id->transfer = &transfer_hid;
@@ -481,14 +493,16 @@ int main(int argc, char * const argv[])
 
 	err = libusb_claim_interface(h, 0);
 	if (err) {
-		printf("Claim failed\n");
-		goto out;
+		fprintf(stderr, "Claim failed\n");
+		ret = EXIT_FAILURE;
+		goto out_close_usb;
 	}
 	printf("Interface 0 claimed\n");
 	err = do_status(p_id);
 	if (err) {
-		printf("status failed\n");
-		goto out;
+		fprintf(stderr, "status failed\n");
+		ret = EXIT_FAILURE;
+		goto out_close_usb;
 	}
 
 	// By default, use work from config file...
@@ -498,8 +512,9 @@ int main(int argc, char * const argv[])
 		curr = cmd_head;
 
 	if (curr == NULL) {
-		printf("no job found\n"); 
-		goto out;
+		fprintf(stderr, "no job found\n"); 
+		ret = EXIT_FAILURE;
+		goto out_close_usb;
 	}
 
 	while (curr) {
@@ -532,7 +547,7 @@ int main(int argc, char * const argv[])
 					break;
 			}
 			if (!h)
-				goto out;
+				goto out_deinit_usb;
 		}
 		if (curr == cmd_head && curr->plug) {
 			curr->plug = 0;
@@ -541,11 +556,11 @@ int main(int argc, char * const argv[])
 		curr = curr->next;
 	}
 
-exit:
 	libusb_release_interface(h, 0);
-out:
-	if (h)
-		libusb_close(h);
+out_close_usb:
+	libusb_close(h);
+out_deinit_usb:
 	libusb_exit(NULL);
-	return 0;
+
+	return ret;
 }
