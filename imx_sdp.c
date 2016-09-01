@@ -677,7 +677,7 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 {
 	struct sdp_command dl_command = {
 		.cmd = SDP_WRITE_DCD,
-		.addr = BE32(0x914000),
+		.addr = BE32(0x910000),
 		.format = 0,
 		.cnt = 0,
 		.data = 0,
