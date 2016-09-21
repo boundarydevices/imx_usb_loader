@@ -90,9 +90,9 @@ int transfer_uart(struct sdp_dev *dev, int report, unsigned char *p, unsigned si
 }
 
 #ifndef WIN32
-int uart_connect(int *uart_fd, char const *tty, int usertscts, struct termios *orig)
+int uart_connect(int *uart_fd, char const *tty, int usertscts, int associate, struct termios *orig)
 #else
-int uart_connect(int *uart_fd, char const *tty, int usertscts, DCB* orig)
+int uart_connect(int *uart_fd, char const *tty, int usertscts, int associate, DCB* orig)
 #endif
 {
 	int err = 0, count = 0;
@@ -195,6 +195,9 @@ int uart_connect(int *uart_fd, char const *tty, int usertscts, DCB* orig)
 
 
 #endif
+	if (!associate)
+		return err;
+
 	// Association phase, send and receive 0x23454523
 	printf("starting associating phase");
 	while(retry--) {
@@ -295,6 +298,7 @@ void print_usage(void)
 		"   -v --verify		Verify downloaded data\n"
 		"   -n --no-rtscts	Do not use RTS/CTS flow control\n"
 		"			Default is to use RTS/CTS, Vybrid requires them\n"
+		"   -N --no-association Do not do serial Association Phase\n"
 		"   -d --debugmode      Enable debug logs\n"
 		"\n"
 		"And where [JOBS...] are\n"
@@ -307,7 +311,7 @@ void print_usage(void)
 
 int parse_opts(int argc, char * const *argv, char const **ttyfile,
 		char const **conffile, int *verify, int *usertscts,
-		struct sdp_work **cmd_head)
+		int *associate, struct sdp_work **cmd_head)
 {
 	char c;
 	*conffile = NULL;
@@ -318,10 +322,11 @@ int parse_opts(int argc, char * const *argv, char const **ttyfile,
 		{"verify",	no_argument, 	0, 'v' },
 		{"debugmode",	no_argument,	0, 'd' },
 		{"no-rtscts",	no_argument, 	0, 'n' },
+		{"no-association", no_argument, 0, 'N' },
 		{0,		0,		0, 0 },
 	};
 
-	while ((c = getopt_long(argc, argv, "+hdvn", long_options, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "+hdvnN", long_options, NULL)) != -1) {
 		switch (c)
 		{
 		case 'h':
@@ -333,6 +338,9 @@ int parse_opts(int argc, char * const *argv, char const **ttyfile,
 			break;
 		case 'n':
 			*usertscts = 0;
+			break;
+		case 'N':
+			*associate = 0;
 			break;
 		case 'v':
 			*verify = 1;
@@ -374,6 +382,7 @@ int main(int argc, char * const argv[])
 	int config = 0;
 	int verify = 0;
 	int usertscts = 1;
+	int associate = 1;
 	int uart_fd;
 	struct sdp_work *curr;
 	char const *conf;
@@ -389,7 +398,8 @@ int main(int argc, char * const argv[])
 
 	curr=NULL;
 
-	err = parse_opts(argc, argv, &ttyfile, &conffilepath, &verify, &usertscts, &curr);
+	err = parse_opts(argc, argv, &ttyfile, &conffilepath, &verify,
+				&usertscts, &associate, &curr);
 
 	if (err < 0)
 		return err;
@@ -414,7 +424,7 @@ int main(int argc, char * const argv[])
 		return -1;
 
 	// Open UART and start associating phase...
-	err = uart_connect(&uart_fd, ttyfile, usertscts, &orig);
+	err = uart_connect(&uart_fd, ttyfile, usertscts, associate, &orig);
 
 	if (err < 0)
 		goto out;
