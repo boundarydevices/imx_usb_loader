@@ -59,6 +59,8 @@
 
 #include "imx_sdp.h"
 
+extern int debugmode;
+
 #define get_min(a, b) (((a) < (b)) ? (a) : (b))
 
 int transfer_uart(struct sdp_dev *dev, int report, unsigned char *p, unsigned size,
@@ -293,6 +295,7 @@ void print_usage(void)
 		"   -v --verify		Verify downloaded data\n"
 		"   -n --no-rtscts	Do not use RTS/CTS flow control\n"
 		"			Default is to use RTS/CTS, Vybrid requires them\n"
+		"   -d --debugmode      Enable debug logs\n"
 		"\n"
 		"And where [JOBS...] are\n"
 		"   FILE [-lLOADADDR] [-sSIZE] ...\n"
@@ -313,17 +316,21 @@ int parse_opts(int argc, char * const *argv, char const **ttyfile,
 	static struct option long_options[] = {
 		{"help",	no_argument, 	0, 'h' },
 		{"verify",	no_argument, 	0, 'v' },
+		{"debugmode",	no_argument,	0, 'd' },
 		{"no-rtscts",	no_argument, 	0, 'n' },
 		{0,		0,		0, 0 },
 	};
 
-	while ((c = getopt_long(argc, argv, "+hvn", long_options, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "+hdvn", long_options, NULL)) != -1) {
 		switch (c)
 		{
 		case 'h':
 		case '?':
 			print_usage();
 			return -1;
+		case 'd':
+			debugmode = 1; /* global extern */
+			break;
 		case 'n':
 			*usertscts = 0;
 			break;
