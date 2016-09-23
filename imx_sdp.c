@@ -328,6 +328,8 @@ void parse_transfer_type(struct sdp_dev *usb, const char *filename, const char *
 	}
 	usb->max_transfer = get_val(&p, 10);
 	p = skip(p,',');
+	usb->dcd_addr = get_val(&p, 16);
+	p = skip(p,',');
 	for (i = 0; i < 8; i++) {
 		usb->ram[i].start = get_val(&p, 10);
 		p = skip(p,',');
@@ -677,7 +679,7 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 {
 	struct sdp_command dl_command = {
 		.cmd = SDP_WRITE_DCD,
-		.addr = BE32(0x914000),
+		.addr = BE32(dev->dcd_addr),
 		.format = 0,
 		.cnt = 0,
 		.data = 0,
@@ -725,6 +727,7 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 		return -1;
 	}
 
+	printf("loading DCD table @%#x\n", dev->dcd_addr);
 	for (;;) {
 		err = dev->transfer(dev, 1, (char *)&dl_command, sizeof(dl_command), 0, &last_trans);
 		if (!err)
