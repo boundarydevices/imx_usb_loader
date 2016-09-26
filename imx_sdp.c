@@ -787,6 +787,119 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 	return transferSize;
 }
 
+static int write_dcd_table_ivt(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char *file_start, unsigned cnt)
+{
+	unsigned char *dcd_end;
+	unsigned m_length;
+#define cvt_dest_to_src		(((unsigned char *)hdr) - hdr->self_ptr)
+	unsigned char* dcd;
+	unsigned char* file_end = file_start + cnt;
+	int err = 0;
+	if (!hdr->dcd_ptr) {
+		printf("No dcd table, barker=%x\n", hdr->barker);
+		return 0;	//nothing to do
+	}
+	dcd = hdr->dcd_ptr + cvt_dest_to_src;
+	if ((dcd < file_start) || ((dcd + 4) > file_end)) {
+		printf("bad dcd_ptr %08x\n", hdr->dcd_ptr);
+		return -1;
+	}
+	m_length = (dcd[1] << 8) + dcd[2];
+	printf("main dcd length %x\n", m_length);
+	if ((dcd[0] != 0xd2) || (dcd[3] != 0x40)) {
+		printf("Unknown tag\n");
+		return -1;
+	}
+	dcd_end = dcd + m_length;
+	if (dcd_end > file_end) {
+		printf("bad dcd length %08x\n", m_length);
+		return -1;
+	}
+	dcd += 4;
+	while (dcd < dcd_end) {
+		unsigned s_length = (dcd[1] << 8) + dcd[2];
+		unsigned sub_tag = (dcd[0] << 24) + (dcd[3] & 0x7);
+		unsigned flags = (dcd[3] & 0xf8);
+		unsigned char *s_end = dcd + s_length;
+		printf("sub dcd length %x\n", s_length);
+		switch(sub_tag) {
+		/* Write Data Command */
+		case 0xcc000004:
+			if (flags & 0xe8) {
+				printf("error: Write Data Command with unsupported flags, flags %x.\n", flags);
+				return -1;
+			}
+			dcd += 4;
+			if (s_end > dcd_end) {
+				printf("error s_end(%p) > dcd_end(%p)\n", s_end, dcd_end);
+				return -1;
+			}
+			while (dcd < s_end) {
+				unsigned addr = (dcd[0] << 24) + (dcd[1] << 16) | (dcd[2] << 8) + dcd[3];
+				unsigned val = (dcd[4] << 24) + (dcd[5] << 16) | (dcd[6] << 8) + dcd[7];
+				dcd += 8;
+				dbg_printf("write data *0x%08x = 0x%08x\n", addr, val);
+				err = write_memory(dev, addr, val);
+				if (err < 0)
+					return err;
+			}
+			break;
+		/* Check Data Command */
+		case 0xcf000004: {
+			unsigned addr, count, mask, val;
+			dcd += 4;
+			addr = (dcd[0] << 24) + (dcd[1] << 16) | (dcd[2] << 8) + dcd[3];
+			mask = (dcd[4] << 24) + (dcd[5] << 16) | (dcd[6] << 8) + dcd[7];
+			count = 10000;
+			switch (s_length) {
+			case 12:
+				dcd += 8;
+				break;
+			case 16:
+				count = (dcd[8] << 24) + (dcd[9] << 16) | (dcd[10] << 8) + dcd[11];
+				dcd += 12;
+				break;
+			default:
+				printf("error s_end(%p) > dcd_end(%p)\n", s_end, dcd_end);
+				return -1;
+			}
+			dbg_printf("Check Data Command, at addr %x, mask %x\n",addr, mask);
+			while (count) {
+				val = 0;
+				err = read_memory(dev, addr, (unsigned char*)&val, 4);
+				if (err < 0) {
+					printf("Check Data Command(%x) error(%d) @%x=%x mask %x\n", flags, err, addr, val, mask);
+					return err;
+				}
+				if ((flags == 0x00) && ((val & mask) == 0) )
+					break;
+				else if ((flags == 0x08) && ((val & mask) != mask) )
+					break;
+				else if ((flags == 0x10) && ((val & mask) == mask) )
+					break;
+				else if ((flags == 0x18) && ((val & mask) != 0) )
+					break;
+				else if (flags & 0xe0) {
+					printf("error: Check Data Command with unsupported flags, flags %x.\n", flags);
+					return -1;
+				}
+				count--;
+			}
+			if (!count)
+				printf("!!!Check Data Command(%x) expired without condition met @%x=%x mask %x\n", flags, addr, val, mask);
+			else
+				printf("Check Data Command(%x) success @%x=%x mask %x\n", flags, addr, val, mask);
+
+			break;
+		}
+		default:
+			printf("Unknown sub tag, dcd[0] 0x%2x, dcd[3] 0x%2x\n", dcd[0], dcd[3]);
+					return -1;
+		}
+	}
+	return err;
+}
+
 static int get_dcd_range_old(struct old_app_header *hdr,
 		unsigned char *file_start, unsigned cnt,
 		unsigned char **pstart, unsigned char **pend)
@@ -1061,7 +1174,12 @@ int perform_dcd(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start
 	case HDR_MX53:
 	{
 		struct ivt_header *hdr = (struct ivt_header *)p;
-		ret = write_dcd(dev, hdr, file_start, cnt);
+		if (dev->mode == MODE_HID) {
+			ret = write_dcd(dev, hdr, file_start, cnt);
+		} else {
+			// For processors that don't support the WRITE_DCD command (i.MX5x)
+			ret = write_dcd_table_ivt(dev, hdr, file_start, cnt);
+		}
 		dbg_printf("dcd_ptr=0x%08x\n", hdr->dcd_ptr);
 #if 1
 		hdr->dcd_ptr = 0;
