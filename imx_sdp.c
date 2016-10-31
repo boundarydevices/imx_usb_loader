@@ -29,6 +29,7 @@
 
 #include "portable.h"
 #include "imx_sdp.h"
+#include "image.h"
 int debugmode = 0;
 
 #ifdef __GNUC__
@@ -334,6 +335,10 @@ void parse_transfer_type(struct sdp_dev *usb, const char *filename, const char *
 		p += 10;
 		p = skip(p,',');
 		usb->header_type = HDR_MX51;
+	} else if (strncmp(p, "uboot_header", 12) == 0) {
+		p += 12;
+		p = skip(p,',');
+		usb->header_type = HDR_UBOOT;
 	} else {
 		usb->header_type = HDR_MX53;
 	}
@@ -1169,6 +1174,12 @@ int is_header(struct sdp_dev *dev, unsigned char *p)
 		if (hdr->barker == IVT_BARKER)
 			return 1;
 	}
+	case HDR_UBOOT:
+	{
+		image_header_t *image = (image_header_t *)p;
+		if (BE32(image->ih_magic) == IH_MAGIC)
+			return 1;
+	}
 	}
 	return 0;
 }
@@ -1274,6 +1285,12 @@ int get_dl_start(struct sdp_dev *dev, unsigned char *p, unsigned char *file_star
 			hdr->boot_data_ptr = 0;
 		}
 		break;
+	}
+	case HDR_UBOOT:
+	{
+		image_header_t *hdr = (image_header_t *)p;
+		*dladdr = BE32(hdr->ih_load) - sizeof(image_header_t);
+		*header_addr = *dladdr;
 	}
 	}
 	return 0;
