@@ -426,8 +426,8 @@ int main(int argc, char * const argv[])
 	err = libusb_open(dev, &h);
 	libusb_free_device_list(devs, 1);
 	if (err < 0) {
-		fprintf(stderr, "%s:Could not open device vid=0x%x pid=0x%x err=%d\n",
-			__func__, mach->vid, mach->pid, err);
+		fprintf(stderr, "Could not open device vid=0x%x pid=0x%x: %s, err=%d\n",
+			mach->vid, mach->pid, libusb_strerror(err), err);
 		ret = EXIT_FAILURE;
 		goto out_deinit_usb;
 	}
