@@ -62,6 +62,7 @@ struct sdp_dev {
 #define HDR_NONE	0
 #define HDR_MX51	1
 #define HDR_MX53	2
+#define HDR_UBOOT	3
 	unsigned char header_type;
 	unsigned dcd_addr;
 	struct ram_area ram[8];
