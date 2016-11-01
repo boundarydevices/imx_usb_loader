@@ -449,17 +449,108 @@ err_release_interface:
 	return err;
 }
 
-int main(int argc, char * const argv[])
+int do_autodetect_dev(char const *base_path, char const *conf_path,
+		struct mach_id *list, int verify, struct sdp_work *cmd_head)
 {
 	struct sdp_dev *p_id;
 	struct mach_id *mach;
 	libusb_device **devs;
 	libusb_device *dev;
-	int err, ret = 0;
+	int err = 0;
 	ssize_t cnt;
-	libusb_device_handle *h = NULL;
-	int verify = 0;
 	struct sdp_work *curr;
+	libusb_device_handle *h = NULL;
+	char const *conf;
+
+	err = libusb_init(NULL);
+	if (err < 0)
+		return err;
+
+	cnt = libusb_get_device_list(NULL, &devs);
+	if (cnt < 0) {
+		err = LIBUSB_ERROR_NO_DEVICE;
+		goto out_deinit_usb;
+	}
+
+//	print_devs(devs);
+	dev = find_imx_dev(devs, &mach, list);
+	if (!dev) {
+		libusb_free_device_list(devs, 1);
+		err = LIBUSB_ERROR_NO_DEVICE;
+		goto out_deinit_usb;
+	}
+
+	err = libusb_open(dev, &h);
+	libusb_free_device_list(devs, 1);
+	if (err < 0) {
+		fprintf(stderr, "Could not open device vid=0x%x pid=0x%x: %s, err=%d\n",
+			mach->vid, mach->pid, libusb_strerror(err), err);
+		goto out_deinit_usb;
+	}
+
+	// Get machine specific configuration file..
+	conf = conf_file_name(mach->file_name, base_path, conf_path);
+	if (conf == NULL) {
+		err = LIBUSB_ERROR_OTHER;
+		goto out_close_usb;
+	}
+
+	p_id = parse_conf(conf);
+	if (!p_id) {
+		err = LIBUSB_ERROR_OTHER;
+		goto out_close_usb;
+	}
+
+	if (p_id->mode == MODE_HID)
+		p_id->transfer = &transfer_hid;
+	if (p_id->mode == MODE_BULK)
+		p_id->transfer = &transfer_bulk;
+
+	// By default, use work from config file...
+	curr = p_id->work;
+
+	if (cmd_head != NULL)
+		curr = cmd_head;
+
+	if (curr == NULL) {
+		fprintf(stderr, "no job found\n");
+		err = LIBUSB_ERROR_OTHER;
+		goto out_close_usb;
+	}
+
+retry:
+	// USB private pointer is libusb device handle...
+	p_id->priv = h;
+
+	err = do_work(p_id, &curr, verify);
+	dbg_printf("do_work finished with err=%d, curr=%p\n", err, curr);
+
+out_close_usb:
+	libusb_close(h);
+
+	/* More work to do? Try to rediscover the same device */
+	if (curr && !(err < 0)) {
+		for (int retry = 0; retry < 10; retry++) {
+			sleep(3);
+			h = libusb_open_device_with_vid_pid(NULL, mach->vid, mach->pid);
+			if (h)
+				goto retry;
+
+			fprintf(stderr, "Could not open device vid=0x%x pid=0x%x err=%d\n",
+					mach->vid, mach->pid, err);
+		}
+	}
+
+out_deinit_usb:
+	libusb_exit(NULL);
+
+	return err;
+}
+
+int main(int argc, char * const argv[])
+{
+	int err;
+	int verify = 0;
 	struct sdp_work *cmd_head = NULL;
 	char const *conf;
 	char const *base_path = get_base_path(argv[0]);
@@ -480,91 +571,9 @@ int main(int argc, char * const argv[])
 	if (!list)
 		return EXIT_FAILURE;
 
-	err = libusb_init(NULL);
+	err = do_autodetect_dev(base_path, conf_path, list, verify, cmd_head);
 	if (err < 0)
 		return EXIT_FAILURE;
 
-	cnt = libusb_get_device_list(NULL, &devs);
-	if (cnt < 0) {
-		ret = EXIT_FAILURE;
-		goto out_deinit_usb;
-	}
-
-//	print_devs(devs);
-	dev = find_imx_dev(devs, &mach, list);
-	if (!dev) {
-		libusb_free_device_list(devs, 1);
-		ret = EXIT_FAILURE;
-		goto out_deinit_usb;
-	}
-
-	err = libusb_open(dev, &h);
-	libusb_free_device_list(devs, 1);
-	if (err < 0) {
-		fprintf(stderr, "Could not open device vid=0x%x pid=0x%x: %s, err=%d\n",
-			mach->vid, mach->pid, libusb_strerror(err), err);
-		ret = EXIT_FAILURE;
-		goto out_deinit_usb;
-	}
-
-	// Get machine specific configuration file..
-	conf = conf_file_name(mach->file_name, base_path, conf_path);
-	if (conf == NULL) {
-		ret = EXIT_FAILURE;
-		goto out_close_usb;
-	}
-
-	p_id = parse_conf(conf);
-	if (!p_id) {
-		ret = EXIT_FAILURE;
-		goto out_close_usb;
-	}
-
-	if (p_id->mode == MODE_HID)
-		p_id->transfer = &transfer_hid;
-	if (p_id->mode == MODE_BULK)
-		p_id->transfer = &transfer_bulk;
-
-	// By default, use work from config file...
-	curr = p_id->work;
-
-	if (cmd_head != NULL)
-		curr = cmd_head;
-
-	if (curr == NULL) {
-		fprintf(stderr, "no job found\n");
-		ret = EXIT_FAILURE;
-		goto out_close_usb;
-	}
-
-retry:
-	// USB private pointer is libusb device handle...
-	p_id->priv = h;
-
-	err = do_work(p_id, &curr, verify);
-	dbg_printf("do_work finished with err=%d, curr=%p\n", err, curr);
-
-	if (err < 0)
-		ret = EXIT_FAILURE;
-
-out_close_usb:
-	libusb_close(h);
-
-	/* More work to do? Try to rediscover the same device */
-	if (curr) {
-		for (int retry = 0; retry < 10; retry++) {
-			sleep(3);
-			h = libusb_open_device_with_vid_pid(NULL, mach->vid, mach->pid);
-			if (h)
-				goto retry;
-
-			fprintf(stderr, "Could not open device vid=0x%x pid=0x%x err=%d\n",
-					mach->vid, mach->pid, err);
-		}
-	}
-
-out_deinit_usb:
-	libusb_exit(NULL);
-
-	return ret;
+	return EXIT_SUCCESS;
 }
