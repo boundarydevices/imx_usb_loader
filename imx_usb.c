@@ -373,6 +373,81 @@ int parse_opts(int argc, char * const *argv, char const **configdir,
 	return 0;
 }
 
+int do_work(struct sdp_dev *p_id, struct sdp_work **work, int verify)
+{
+	struct sdp_work *curr = *work;
+	int config = 0;
+	int err = 0;
+	libusb_device_handle *h = p_id->priv;
+
+	libusb_get_configuration(h, &config);
+	dbg_printf("bConfigurationValue = 0x%x\n", config);
+
+	if (libusb_kernel_driver_active(h, 0))
+		 libusb_detach_kernel_driver(h, 0);
+
+	err = libusb_claim_interface(h, 0);
+	if (err) {
+		fprintf(stderr, "claim interface failed\n");
+		return err;
+	}
+	printf("Interface 0 claimed\n");
+	err = do_status(p_id);
+	if (err) {
+		fprintf(stderr, "status failed\n");
+		goto err_release_interface;
+	}
+
+	while (curr) {
+		/* Do current job */
+		if (curr->mem)
+			perform_mem_work(p_id, curr->mem);
+		if (curr->filename[0])
+			err = DoIRomDownload(p_id, curr, verify);
+		if (err) {
+			err = do_status(p_id);
+			break;
+		}
+
+		/* Check if more work is to do... */
+		if (!curr->next) {
+			/*
+			 * If only one job, but with a plug-in is specified
+			 * reexecute the same job, but this time download the
+			 * image. This allows to specify a single file with
+			 * plugin and image, and imx_usb will download & run
+			 * the plugin first and then the image.
+			 * NOTE: If the file does not contain a plugin,
+			 * DoIRomDownload->process_header will set curr->plug
+			 * to 0, so we won't download the same image twice...
+			 */
+			if (curr->plug) {
+				curr->plug = 0;
+			} else {
+				curr = NULL;
+				break;
+			}
+		} else {
+			curr = curr->next;
+		}
+
+		/*
+		 * Check if device is still here, otherwise return
+		 * with work (retry) */
+		err = do_status(p_id);
+		if (err < 0) {
+			err = 0;
+			break;
+		}
+	}
+
+	*work = curr;
+
+err_release_interface:
+	libusb_release_interface(h, 0);
+	return err;
+}
+
 int main(int argc, char * const argv[])
 {
 	struct sdp_dev *p_id;
@@ -382,7 +457,6 @@ int main(int argc, char * const argv[])
 	int err, ret = 0;
 	ssize_t cnt;
 	libusb_device_handle *h = NULL;
-	int config = 0;
 	int verify = 0;
 	struct sdp_work *curr;
 	struct sdp_work *cmd_head = NULL;
@@ -466,85 +540,28 @@ retry:
 	// USB private pointer is libusb device handle...
 	p_id->priv = h;
 
-	libusb_get_configuration(h, &config);
-	printf("%04x:%04x(%s) bConfigurationValue =%x\n",
-			mach->vid, mach->pid, p_id->name, config);
+	err = do_work(p_id, &curr, verify);
+	dbg_printf("do_work finished with err=%d, curr=%p\n", err, curr);
 
-	if (libusb_kernel_driver_active(h, 0))
-		 libusb_detach_kernel_driver(h, 0);
-
-	err = libusb_claim_interface(h, 0);
-	if (err) {
-		fprintf(stderr, "claim interface failed\n");
+	if (err < 0)
 		ret = EXIT_FAILURE;
-		goto out_close_usb;
-	}
-	printf("Interface 0 claimed\n");
-	err = do_status(p_id);
-	if (err) {
-		fprintf(stderr, "status failed\n");
-		ret = EXIT_FAILURE;
-		goto out_close_usb;
-	}
 
-	while (curr) {
-		/* Do current job */
-		if (curr->mem)
-			perform_mem_work(p_id, curr->mem);
-		if (curr->filename[0])
-			err = DoIRomDownload(p_id, curr, verify);
-		if (err) {
-			err = do_status(p_id);
-			break;
-		}
-
-		/* Check if more work is to do... */
-		if (!curr->next) {
-			/*
-			 * If only one job, but with a plug-in is specified
-			 * reexecute the same job, but this time download the
-			 * image. This allows to specify a single file with
-			 * plugin and image, and imx_usb will download & run
-			 * the plugin first and then the image.
-			 * NOTE: If the file does not contain a plugin,
-			 * DoIRomDownload->process_header will set curr->plug
-			 * to 0, so we won't download the same image twice...
-			 */
-			if (curr->plug)
-				curr->plug = 0;
-			else
-				break;
-		} else {
-			curr = curr->next;
-		}
-
-		/* Check if device is still here, otherwise retry connecting */
-		err = do_status(p_id);
-		if (err) {
-			int retry;
-			/* Rediscovers device */
-			libusb_release_interface(h, 0);
-			libusb_close(h);
-
-			for (retry = 0; retry < 10; retry++) {
-				sleep(3);
-				h = libusb_open_device_with_vid_pid(NULL, mach->vid, mach->pid);
-				if (h)
-					break;
-
-				fprintf(stderr, "Could not open device vid=0x%x pid=0x%x err=%d\n",
-					mach->vid, mach->pid, err);
-			}
-			if (!h)
-				goto out_deinit_usb;
-			goto retry;
-		}
-
-	}
-
-	libusb_release_interface(h, 0);
 out_close_usb:
 	libusb_close(h);
+
+	/* More work to do? Try to rediscover the same device */
+	if (curr) {
+		for (int retry = 0; retry < 10; retry++) {
+			sleep(3);
+			h = libusb_open_device_with_vid_pid(NULL, mach->vid, mach->pid);
+			if (h)
+				goto retry;
+
+			fprintf(stderr, "Could not open device vid=0x%x pid=0x%x err=%d\n",
+					mach->vid, mach->pid, err);
+		}
+	}
+
 out_deinit_usb:
 	libusb_exit(NULL);
 
