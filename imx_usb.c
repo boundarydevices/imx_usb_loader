@@ -305,37 +305,6 @@ int transfer_bulk(struct sdp_dev *dev, int report, unsigned char *p, unsigned in
 	return err;
 }
 
-libusb_device_handle * open_vid_pid(struct mach_id *mach, struct sdp_dev *p_id)
-{
-	int r = libusb_init(NULL);
-	int err;
-	libusb_device_handle *h;
-	h = libusb_open_device_with_vid_pid(NULL, mach->vid, mach->pid);
-	if (!h) {
-		printf("%s:Could not open device vid=0x%x pid=0x%x\n", __func__,
-				mach->vid, mach->pid);
-		goto err1;
-	}
-	if (libusb_kernel_driver_active(h, 0))
-		libusb_detach_kernel_driver(h, 0);
-	err = libusb_claim_interface(h, 0);
-	if (err) {
-		printf("claim failed, err=%i\n", err);
-		goto err2;
-	}
-	p_id->priv = h;
-	err = do_status(p_id);
-	if (!err)
-		return h;
-	printf("status failed, err=%i\n", err);
-err2:
-	libusb_release_interface(h, 0);
-	libusb_close(h);
-err1:
-	libusb_exit(NULL);
-	return NULL;
-}
-
 #define ARRAY_SIZE(w) sizeof(w)/sizeof(w[0])
 
 void print_usage(void)
@@ -379,7 +348,7 @@ int parse_opts(int argc, char * const *argv, char const **configdir,
 		case 'h':
 		case '?':
 			print_usage();
-			return -1;
+			return 1;
 		case 'd':
 			debugmode = 1; /* global extern */
 			break;
@@ -404,17 +373,84 @@ int parse_opts(int argc, char * const *argv, char const **configdir,
 	return 0;
 }
 
+int do_work(struct sdp_dev *p_id, struct sdp_work **work, int verify)
+{
+	struct sdp_work *curr = *work;
+	int config = 0;
+	int err = 0;
+	libusb_device_handle *h = p_id->priv;
+
+	libusb_get_configuration(h, &config);
+	dbg_printf("bConfigurationValue = 0x%x\n", config);
+
+	if (libusb_kernel_driver_active(h, 0))
+		 libusb_detach_kernel_driver(h, 0);
+
+	err = libusb_claim_interface(h, 0);
+	if (err) {
+		fprintf(stderr, "claim interface failed\n");
+		return err;
+	}
+	printf("Interface 0 claimed\n");
+	err = do_status(p_id);
+	if (err) {
+		fprintf(stderr, "status failed\n");
+		goto err_release_interface;
+	}
+
+	while (curr) {
+		/* Do current job */
+		if (curr->mem)
+			perform_mem_work(p_id, curr->mem);
+		if (curr->filename[0])
+			err = DoIRomDownload(p_id, curr, verify);
+		if (err) {
+			err = do_status(p_id);
+			break;
+		}
+
+		/* Check if more work is to do... */
+		if (!curr->next) {
+			/*
+			 * If only one job, but with a plug-in is specified
+			 * reexecute the same job, but this time download the
+			 * image. This allows to specify a single file with
+			 * plugin and image, and imx_usb will download & run
+			 * the plugin first and then the image.
+			 * NOTE: If the file does not contain a plugin,
+			 * DoIRomDownload->process_header will set curr->plug
+			 * to 0, so we won't download the same image twice...
+			 */
+			if (curr->plug)
+				curr->plug = 0;
+			else
+				break;
+		} else {
+			curr = curr->next;
+		}
+
+		/* Check if device is still here, otherwise return -1 (retry) */
+		err = do_status(p_id);
+		if (err) {
+			err = -1;
+			work = &curr;
+		}
+	}
+
+err_release_interface:
+	libusb_release_interface(h, 0);
+	return err;
+}
+
 int main(int argc, char * const argv[])
 {
 	struct sdp_dev *p_id;
 	struct mach_id *mach;
 	libusb_device **devs;
 	libusb_device *dev;
-	int r;
-	int err;
+	int err, ret = 0;
 	ssize_t cnt;
 	libusb_device_handle *h = NULL;
-	int config = 0;
 	int verify = 0;
 	struct sdp_work *curr;
 	struct sdp_work *cmd_head = NULL;
@@ -424,72 +460,63 @@ int main(int argc, char * const argv[])
 
 	err = parse_opts(argc, argv, &conf_path, &verify, &cmd_head);
 	if (err < 0)
-		return -1;
+		return EXIT_FAILURE;
+	else if (err > 0)
+		return EXIT_SUCCESS;
 
 	// Get list of machines...
 	conf = conf_file_name("imx_usb.conf", base_path, conf_path);
 	if (conf == NULL)
-		return -1;
+		return EXIT_FAILURE;
 
 	struct mach_id *list = parse_imx_conf(conf);
 	if (!list)
-		return -1;
+		return EXIT_FAILURE;
 
-	r = libusb_init(NULL);
-	if (r < 0)
-		goto out;
+	err = libusb_init(NULL);
+	if (err < 0)
+		return EXIT_FAILURE;
 
 	cnt = libusb_get_device_list(NULL, &devs);
-	if (cnt < 0)
-		goto out;
+	if (cnt < 0) {
+		ret = EXIT_FAILURE;
+		goto out_deinit_usb;
+	}
 
 //	print_devs(devs);
 	dev = find_imx_dev(devs, &mach, list);
-	if (dev) {
-		err = libusb_open(dev, &h);
-		if (err)
-			printf("%s:Could not open device vid=0x%x pid=0x%x err=%d\n", __func__, mach->vid, mach->pid, err);
+	if (!dev) {
+		libusb_free_device_list(devs, 1);
+		ret = EXIT_FAILURE;
+		goto out_deinit_usb;
 	}
-	libusb_free_device_list(devs, 1);
 
-	if (!h)
-		goto out;
+	err = libusb_open(dev, &h);
+	libusb_free_device_list(devs, 1);
+	if (err < 0) {
+		fprintf(stderr, "Could not open device vid=0x%x pid=0x%x: %s, err=%d\n",
+			mach->vid, mach->pid, libusb_strerror(err), err);
+		ret = EXIT_FAILURE;
+		goto out_deinit_usb;
+	}
 
 	// Get machine specific configuration file..
 	conf = conf_file_name(mach->file_name, base_path, conf_path);
-	if (conf == NULL)
-		goto out;
+	if (conf == NULL) {
+		ret = EXIT_FAILURE;
+		goto out_close_usb;
+	}
 
 	p_id = parse_conf(conf);
-	if (!p_id)
-		goto out;
+	if (!p_id) {
+		ret = EXIT_FAILURE;
+		goto out_close_usb;
+	}
 
 	if (p_id->mode == MODE_HID)
 		p_id->transfer = &transfer_hid;
 	if (p_id->mode == MODE_BULK)
 		p_id->transfer = &transfer_bulk;
-
-	// USB private pointer is libusb device handle...
-	p_id->priv = h;
-
-	libusb_get_configuration(h, &config);
-	printf("%04x:%04x(%s) bConfigurationValue =%x\n",
-			mach->vid, mach->pid, p_id->name, config);
-
-	if (libusb_kernel_driver_active(h, 0))
-		 libusb_detach_kernel_driver(h, 0);
-
-	err = libusb_claim_interface(h, 0);
-	if (err) {
-		printf("Claim failed\n");
-		goto out;
-	}
-	printf("Interface 0 claimed\n");
-	err = do_status(p_id);
-	if (err) {
-		printf("status failed\n");
-		goto out;
-	}
 
 	// By default, use work from config file...
 	curr = p_id->work;
@@ -498,54 +525,38 @@ int main(int argc, char * const argv[])
 		curr = cmd_head;
 
 	if (curr == NULL) {
-		printf("no job found\n"); 
-		goto out;
+		fprintf(stderr, "no job found\n");
+		ret = EXIT_FAILURE;
+		goto out_close_usb;
 	}
 
-	while (curr) {
-		if (curr->mem)
-			perform_mem_work(p_id, curr->mem);
-//		printf("jump_mode %x\n", curr->jump_mode);
-		if (curr->filename[0]) {
-			err = DoIRomDownload(p_id, curr, verify);
+retry:
+	// USB private pointer is libusb device handle...
+	p_id->priv = h;
+
+	err = do_work(p_id, &curr, verify);
+
+	if (err > 0)
+		ret = EXIT_FAILURE;
+
+out_close_usb:
+	libusb_close(h);
+
+	/* Retry discover device? */
+	if (err < 0) {
+		for (int retry = 0; retry < 10; retry++) {
+			sleep(3);
+			h = libusb_open_device_with_vid_pid(NULL, mach->vid, mach->pid);
+			if (h)
+				goto retry;
+
+			fprintf(stderr, "Could not open device vid=0x%x pid=0x%x err=%d\n",
+					mach->vid, mach->pid, err);
 		}
-		if (err) {
-			err = do_status(p_id);
-			break;
-		}
-		if (!curr->next && (!curr->plug || curr != cmd_head))
-			break;
-		err = do_status(p_id);
-		printf("jump_mode %x plug=%i err=%i\n", curr->jump_mode, curr->plug, err);
-		if (err) {
-			int retry;
-			/* Rediscovers device */
-			libusb_release_interface(h, 0);
-			libusb_close(h);
-			libusb_exit(NULL);
-			for (retry = 0; retry < 10; retry++) {
-				printf("sleeping\n");
-				sleep(3);
-				printf("done sleeping\n");
-				h = open_vid_pid(mach, p_id);
-				if (h)
-					break;
-			}
-			if (!h)
-				goto out;
-		}
-		if (curr == cmd_head && curr->plug) {
-			curr->plug = 0;
-			continue;
-		}
-		curr = curr->next;
 	}
 
-exit:
-	libusb_release_interface(h, 0);
-out:
-	if (h)
-		libusb_close(h);
+out_deinit_usb:
 	libusb_exit(NULL);
-	return 0;
+
+	return ret;
 }
