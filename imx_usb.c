@@ -421,19 +421,24 @@ int do_work(struct sdp_dev *p_id, struct sdp_work **work, int verify)
 			 * DoIRomDownload->process_header will set curr->plug
 			 * to 0, so we won't download the same image twice...
 			 */
-			if (curr->plug)
+			if (curr->plug) {
 				curr->plug = 0;
-			else
+			} else {
+				work = NULL;
 				break;
+			}
 		} else {
 			curr = curr->next;
 		}
 
-		/* Check if device is still here, otherwise return -1 (retry) */
+		/*
+		 * Check if device is still here, otherwise return
+		 * with work (retry) */
 		err = do_status(p_id);
-		if (err) {
-			err = -1;
+		if (err < 0) {
+			err = 0;
 			work = &curr;
+			break;
 		}
 	}
 
@@ -536,14 +541,14 @@ retry:
 
 	err = do_work(p_id, &curr, verify);
 
-	if (err > 0)
+	if (err < 0)
 		ret = EXIT_FAILURE;
 
 out_close_usb:
 	libusb_close(h);
 
-	/* Retry discover device? */
-	if (err < 0) {
+	/* More work to do? Try to rediscover the same device */
+	if (curr) {
 		for (int retry = 0; retry < 10; retry++) {
 			sleep(3);
 			h = libusb_open_device_with_vid_pid(NULL, mach->vid, mach->pid);
