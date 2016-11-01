@@ -499,10 +499,21 @@ retry:
 		}
 
 		/* Check if more work is to do... */
-		if (!curr->next && (!curr->plug || curr != cmd_head))
-			break;
-		if (curr == cmd_head && curr->plug) {
-			curr->plug = 0;
+		if (!curr->next) {
+			/*
+			 * If only one job, but with a plug-in is specified
+			 * reexecute the same job, but this time download the
+			 * image. This allows to specify a single file with
+			 * plugin and image, and imx_usb will download & run
+			 * the plugin first and then the image.
+			 * NOTE: If the file does not contain a plugin,
+			 * DoIRomDownload->process_header will set curr->plug
+			 * to 0, so we won't download the same image twice...
+			 */
+			if (curr->plug)
+				curr->plug = 0;
+			else
+				break;
 		} else {
 			curr = curr->next;
 		}
