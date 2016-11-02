@@ -23,9 +23,6 @@
 #include <time.h>
 
 #include <ctype.h>
-#ifdef WIN32
-#include <io.h>
-#endif
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
@@ -38,13 +35,6 @@
 #include <termios.h>
 
 #include <sys/ioctl.h>
-#else
-
-#define open(filename,oflag)	_open(filename,oflag)
-#define write(fd,buffer,count)	_write(fd,buffer,count)
-#define read(fd,buffer,count)	_read(fd,buffer,count)
-#define close(fd)				_close(fd)
-
 #endif
 
 #include "portable.h"

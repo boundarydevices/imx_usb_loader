@@ -22,9 +22,6 @@
 #include <time.h>
 
 #include <ctype.h>
-#ifdef WIN32
-#include <io.h>
-#endif
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
@@ -54,9 +51,6 @@ int debugmode = 0;
 #else
 #define dbg_printf(fmt, ...)    /* Don't do anything in release builds */
 #endif
-
-#define R_OK	04
-#define access(filename,oflag)	_access(filename,oflag)
 #endif
 
 
