@@ -103,6 +103,7 @@ const unsigned char *move_string(unsigned char *dest, const unsigned char *src, 
 		}
 		dest[i++] = c;
 	}
+	dest[i] = '\0';
 	return src;
 }
 
