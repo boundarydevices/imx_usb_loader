@@ -1639,6 +1639,9 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 			err = dev->transfer(dev, 4, tmp, sizeof(tmp), 4, &last_trans);
 			if (tmp[0] || tmp[1] || tmp[2] || tmp[3])
 				printf("j4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+
+			// Ignore error. Documentation says "This report is sent by device only in case of an error jumping to the given address..."
+			err = 0;
 		}
 	}
 	ret = (fsize == transferSize) ? 0 : -16;
