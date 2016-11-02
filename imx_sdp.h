@@ -120,10 +120,4 @@ int do_status(struct sdp_dev *dev);
 
 int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify);
 
-#ifndef WIN32
-#define PATH_SEPARATOR	'/'
-#else
-#define PATH_SEPARATOR	'\\'
-#endif
-
 #endif /* __IMX_SDP_H__ */
