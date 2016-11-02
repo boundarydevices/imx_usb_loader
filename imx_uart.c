@@ -75,7 +75,6 @@ int uart_connect(int *uart_fd, char const *tty, int usertscts, DCB* orig)
 #endif
 {
 	int err = 0, count = 0;
-	int i;
 	int retry = 10;
 #ifndef WIN32
 	int flags = O_RDWR | O_NOCTTY | O_SYNC;
@@ -215,21 +214,21 @@ int uart_connect(int *uart_fd, char const *tty, int usertscts, DCB* orig)
 	if (!retry) {
 		fprintf(stderr, "associating phase failed, make sure the device"
 		       " is in recovery mode\n");
+		close(*uart_fd);
 		return -2;
 	}
-
-	err = 0;
 
 	if (memcmp(magic, magic_response, sizeof(magic_response))) {
 		fprintf(stderr, "magic missmatch, response was 0x%08x\n",
 				*(uint32_t *)magic_response);
+		close(*uart_fd);
 		return -3;
 	}
 
 	fprintf(stderr, "association phase succeeded, response was 0x%08x\n",
 				*(uint32_t *)magic_response);
 
-	return err;
+	return 0;
 }
 
 #ifndef WIN32
@@ -389,7 +388,7 @@ int main(int argc, char * const argv[])
 	err = uart_connect(&uart_fd, ttyfile, usertscts, &orig);
 
 	if (err < 0)
-		goto out;
+		return EXIT_FAILURE;
 
 	p_id->transfer = &transfer_uart;
 
