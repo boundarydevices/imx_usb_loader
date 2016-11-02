@@ -36,9 +36,18 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-
 #include "imx_sdp.h"
 int debugmode = 0;
+
+#ifdef __GNUC__
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#define BE32(x) __builtin_bswap32(x)
+#else
+#define BE32(x) x
+#endif
+#elif _MSC_VER // assume little endian...
+#define BE32(x) _byteswap_ulong(x)
+#endif
 
 #ifndef WIN32
 
@@ -542,12 +551,6 @@ struct old_app_header {
 	uint32_t dcd_ptr;
 	uint32_t app_dest_ptr;
 };
-
-#if defined(__BYTE_ORDER) && __BYTE_ORDER == __BIG_ENDIAN || defined(__BIG_ENDIAN__)
-#define BE32(a) (a)
-#else
-#define BE32(a) (((a & 0xff000000)>>24) | ((a & 0x00ff0000)>>8) | ((a & 0x0000ff00)<<8) | ((a & 0x000000ff)<<24))
-#endif
 
 static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, unsigned cnt)
 {
