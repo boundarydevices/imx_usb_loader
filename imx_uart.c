@@ -398,7 +398,7 @@ int main(int argc, char * const argv[])
 		conffile++; // Filename starts after slash
 	}
 
-	conf = conf_file_name(conffile, basepath, SYSCONFDIR "/imx-loader.d/");
+	conf = conf_file_name(conffile, basepath, str(IMXCONFDIR));
 	if (conf == NULL)
 		return -1;
 

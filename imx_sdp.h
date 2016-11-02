@@ -21,6 +21,8 @@
 #ifndef __IMX_SDP_H__
 #define __IMX_SDP_H__
 
+#define str(s) #s
+
 struct ram_area {
 	unsigned start;
 	unsigned size;
