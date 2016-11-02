@@ -87,6 +87,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\imx_sdp.h" />
+    <ClInclude Include="..\portable.h" />
     <ClInclude Include="getopt.h" />
   </ItemGroup>
   <ItemGroup>

@@ -22,11 +22,6 @@
 #include <sys/types.h>
 #include <time.h>
 
-#ifndef WIN32
-#include <unistd.h>
-#else
-#include <Windows.h>
-#endif
 #include <ctype.h>
 #ifdef WIN32
 #include <io.h>
@@ -52,6 +47,7 @@
 
 #endif
 
+#include "portable.h"
 #include "imx_sdp.h"
 
 extern int debugmode;
@@ -222,12 +218,10 @@ int uart_connect(int *uart_fd, char const *tty, int usertscts, int associate, DC
 
 		printf(".");
 		fflush(stdout);
-#ifdef WIN32
-		Sleep(1000);
-#else
+#ifndef WIN32
 		err = tcflush(*uart_fd, TCIOFLUSH);
-		sleep(1);
 #endif
+		msleep(1000);
 	}
 
 	printf("\n");

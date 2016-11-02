@@ -21,12 +21,6 @@
 #include <sys/types.h>
 #include <time.h>
 
-#ifndef WIN32
-#include <unistd.h>
-#else
-#include <windows.h>
-#include <stddef.h>
-#endif
 #include <ctype.h>
 #ifdef WIN32
 #include <io.h>
@@ -36,6 +30,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 
+#include "portable.h"
 #include "imx_sdp.h"
 int debugmode = 0;
 
@@ -62,9 +57,6 @@ int debugmode = 0;
 
 #define R_OK	04
 #define access(filename,oflag)	_access(filename,oflag)
-
-
-#define usleep(us)	Sleep((us+999)/1000)
 #endif
 
 
@@ -755,7 +747,7 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 			else
 				max <<= 1;
 			/* Wait a few ms before retrying transfer */
-			usleep(10000);
+			msleep(10);
 			retry++;
 			continue;
 		}
@@ -1422,7 +1414,7 @@ int load_file(struct sdp_dev *dev,
 					max >>= 1;
 				else
 					max <<= 1;
-				usleep(10000);
+				msleep(10);
 				retry++;
 				continue;
 			}
