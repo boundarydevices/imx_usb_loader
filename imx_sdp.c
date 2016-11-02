@@ -684,7 +684,7 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 	int last_trans, err;
 	int retry = 0;
 	unsigned transferSize=0;
-	int max = dev->max_transfer;
+	unsigned int max = dev->max_transfer;
 	unsigned char tmp[64];
 
 	if (!hdr->dcd_ptr) {
