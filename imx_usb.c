@@ -32,6 +32,7 @@
 
 #include <libusb-1.0/libusb.h>
 
+#include "portable.h"
 #include "imx_sdp.h"
 
 extern int debugmode;
@@ -528,7 +529,7 @@ out_close_usb:
 	/* More work to do? Try to rediscover the same device */
 	if (curr && !(err < 0)) {
 		for (int retry = 0; retry < 10; retry++) {
-			sleep(3);
+			msleep(3000);
 			h = libusb_open_device_with_vid_pid(NULL, mach->vid, mach->pid);
 			if (h)
 				goto retry;
