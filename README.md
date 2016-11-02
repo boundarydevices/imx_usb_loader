@@ -18,6 +18,34 @@ The utility support USB and UART as serial link.
 Two binaries are available, imx_usb and imx_uart for the two supported
 connections.
 
+### Windows
+
+Two variants have been tested successfully to build imx_usb and imx_uart
+on Windows:
+1. MinGW (using the Microsoft C runtime)
+1. Visual Studio 2015
+
+#### MinGW
+
+MinGW allows to use the GNU toolchain (including GCC) to compile a native
+Microsoft Windows application. A MinGW specific make file (Makefile.mingw)
+is available which allows to build imx_usb/imx_uart with the native make
+port (mingw32-make.exe). After installing MinGW, make sure you have a
+compiled copy of libusb available and build imx_loader using:
+
+```
+mingw32-make -f Makefile.mingw LIBUSBPATH=C:\path\to\libusb
+```
+
+This dynamically links against libusb, hence make sure to ship the
+library libusb-1.0.dll along with imx_usb.exe.
+
+#### Visual Studio
+
+The subdirectory msvc/ contains the project files for Visual Studio 2015.
+Make sure you have the Visual C++ component installed. Currently there is
+only a project for imx_uart.
+
 ## Usage
 Using USB, your device should be detected automatically using the USB
 VID/PID from imx_usb.conf. Using UART, the user has to specify a
