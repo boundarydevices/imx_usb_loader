@@ -238,6 +238,8 @@ int transfer_hid(struct sdp_dev *dev, int report, unsigned char *p, unsigned int
 	tmp[0] = (unsigned char)report;
 	if (report < 3) {
 		memcpy(&tmp[1], p, cnt);
+		if (report == 2)
+			cnt = dev->max_transfer;
 		err = libusb_control_transfer(h,
 				CTRL_OUT,
 				HID_SET_REPORT,

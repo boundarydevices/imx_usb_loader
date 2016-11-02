@@ -675,7 +675,7 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 		.data = 0,
 		.rsvd = 0};
 
-	unsigned m_length;
+	int length;
 #define cvt_dest_to_src		(((unsigned char *)hdr) - hdr->self_ptr)
 	unsigned char* dcd, *dcd_end;
 	unsigned char* file_end = file_start + cnt;
@@ -702,18 +702,18 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 		return -1;
 	}
 
-	m_length = (dcd[1] << 8) + dcd[2];
+	length = (dcd[1] << 8) + dcd[2];
 
-	if (m_length > HAB_MAX_DCD_SIZE) {
-		printf("DCD is too big (%d bytes)\n", m_length);
+	if (length > HAB_MAX_DCD_SIZE) {
+		printf("DCD is too big (%d bytes)\n", length);
 		return -1;
 	}
 
-	dl_command.cnt = BE32(m_length);
+	dl_command.cnt = BE32(length);
 
-	dcd_end = dcd + m_length;
+	dcd_end = dcd + length;
 	if (dcd_end > file_end) {
-		printf("bad dcd length %08x\n", m_length);
+		printf("bad dcd length %08x\n", length);
 		return -1;
 	}
 
@@ -729,10 +729,10 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 	}
 	retry = 0;
 
-	while (m_length) {
-		err = dev->transfer(dev, 2, dcd, get_min(m_length, max), 0, &last_trans);
+	while (length > 0) {
+		err = dev->transfer(dev, 2, dcd, get_min(length, max), 0, &last_trans);
 		if (err) {
-			printf("out err=%i, last_trans=%i cnt=0x%x max=0x%x transferSize=0x%X retry=%i\n", err, last_trans, m_length, max, transferSize, retry);
+			printf("out err=%i, last_trans=%i cnt=0x%x max=0x%x transferSize=0x%X retry=%i\n", err, last_trans, length, max, transferSize, retry);
 			if (retry >= 10) {
 				printf("Giving up\n");
 				return err;
@@ -754,11 +754,11 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 			break;
 		}
 		dcd += last_trans;
-		m_length -= last_trans;
+		length -= last_trans;
 		transferSize += last_trans;
 	}
 
-	printf("\r\n<<<%i, %i bytes>>>\r\n", m_length, transferSize);
+	printf("\r\n<<<%i, %i bytes>>>\r\n", length, transferSize);
 	if (dev->mode == MODE_HID) {
 		err = dev->transfer(dev, 3, tmp, sizeof(tmp), 4, &last_trans);
 		if (err)
@@ -1416,7 +1416,7 @@ int load_file(struct sdp_dev *dev,
 			max = dev->max_transfer;
 			retry = 0;
 			if (cnt < last_trans) {
-				printf("error: last_trans=0x%x, attempted only=0%x\n", last_trans, cnt);
+				dbg_printf("note: last_trans=0x%x, attempted only=0%x\n", last_trans, cnt);
 				cnt = last_trans;
 			}
 			if (!last_trans) {
@@ -1644,7 +1644,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 			err = 0;
 		}
 	}
-	ret = (fsize == transferSize) ? 0 : -16;
+	ret = (fsize <= transferSize) ? 0 : -16;
 cleanup:
 	fclose(xfile);
 	free(verify_buffer);
