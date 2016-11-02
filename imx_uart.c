@@ -35,12 +35,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
-
-#ifndef WIN32
 #include <getopt.h>
-#else
-#include "getopt.h"	// use local re-implementation of getopt
-#endif
 
 #include <fcntl.h>
 
