@@ -1416,7 +1416,7 @@ int load_file(struct sdp_dev *dev,
 			max = dev->max_transfer;
 			retry = 0;
 			if (cnt < last_trans) {
-				printf("error: last_trans=0x%x, attempted only=0%x\n", last_trans, cnt);
+				dbg_printf("note: last_trans=0x%x, attempted only=0%x\n", last_trans, cnt);
 				cnt = last_trans;
 			}
 			if (!last_trans) {
@@ -1644,7 +1644,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 			err = 0;
 		}
 	}
-	ret = (fsize == transferSize) ? 0 : -16;
+	ret = (fsize <= transferSize) ? 0 : -16;
 cleanup:
 	fclose(xfile);
 	free(verify_buffer);
