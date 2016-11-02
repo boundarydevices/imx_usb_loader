@@ -406,7 +406,8 @@ int do_work(struct sdp_dev *p_id, struct sdp_work **work, int verify)
 		if (curr->filename[0])
 			err = DoIRomDownload(p_id, curr, verify);
 		if (err) {
-			err = do_status(p_id);
+			fprintf(stderr, "DoIRomDownload failed, err=%d\n", err);
+			do_status(p_id);
 			break;
 		}
 
