@@ -21,24 +21,25 @@
 #include <sys/types.h>
 #include <time.h>
 
-#ifndef WIN32
-#include <unistd.h>
-#else
-#include <windows.h>
-#include <stddef.h>
-#endif
 #include <ctype.h>
-#ifdef WIN32
-#include <io.h>
-#endif
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
 
-
+#include "portable.h"
 #include "imx_sdp.h"
 int debugmode = 0;
+
+#ifdef __GNUC__
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#define BE32(x) __builtin_bswap32(x)
+#else
+#define BE32(x) x
+#endif
+#elif _MSC_VER // assume little endian...
+#define BE32(x) _byteswap_ulong(x)
+#endif
 
 #ifndef WIN32
 
@@ -50,12 +51,6 @@ int debugmode = 0;
 #else
 #define dbg_printf(fmt, ...)    /* Don't do anything in release builds */
 #endif
-
-#define R_OK	04
-#define access(filename,oflag)	_access(filename,oflag)
-
-
-#define usleep(us)	Sleep((us+999)/1000)
 #endif
 
 
@@ -108,6 +103,7 @@ const unsigned char *move_string(unsigned char *dest, const unsigned char *src, 
 		}
 		dest[i++] = c;
 	}
+	dest[i] = '\0';
 	return src;
 }
 
@@ -543,12 +539,6 @@ struct old_app_header {
 	uint32_t app_dest_ptr;
 };
 
-#if defined(__BYTE_ORDER) && __BYTE_ORDER == __BIG_ENDIAN || defined(__BIG_ENDIAN__)
-#define BE32(a) (a)
-#else
-#define BE32(a) (((a & 0xff000000)>>24) | ((a & 0x00ff0000)>>8) | ((a & 0x0000ff00)<<8) | ((a & 0x000000ff)<<24))
-#endif
-
 static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, unsigned cnt)
 {
 	struct sdp_command read_reg_command = {
@@ -694,7 +684,7 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 	int last_trans, err;
 	int retry = 0;
 	unsigned transferSize=0;
-	int max = dev->max_transfer;
+	unsigned int max = dev->max_transfer;
 	unsigned char tmp[64];
 
 	if (!hdr->dcd_ptr) {
@@ -752,7 +742,7 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 			else
 				max <<= 1;
 			/* Wait a few ms before retrying transfer */
-			usleep(10000);
+			msleep(10);
 			retry++;
 			continue;
 		}
@@ -1419,14 +1409,14 @@ int load_file(struct sdp_dev *dev,
 					max >>= 1;
 				else
 					max <<= 1;
-				usleep(10000);
+				msleep(10);
 				retry++;
 				continue;
 			}
 			max = dev->max_transfer;
 			retry = 0;
 			if (cnt < last_trans) {
-				printf("error: last_trans=0x%x, attempted only=0%x\n", last_trans, cnt);
+				dbg_printf("note: last_trans=0x%x, attempted only=0%x\n", last_trans, cnt);
 				cnt = last_trans;
 			}
 			if (!last_trans) {
@@ -1649,9 +1639,12 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 			err = dev->transfer(dev, 4, tmp, sizeof(tmp), 4, &last_trans);
 			if (tmp[0] || tmp[1] || tmp[2] || tmp[3])
 				printf("j4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+
+			// Ignore error. Documentation says "This report is sent by device only in case of an error jumping to the given address..."
+			err = 0;
 		}
 	}
-	ret = (fsize == transferSize) ? 0 : -16;
+	ret = (fsize <= transferSize) ? 0 : -16;
 cleanup:
 	fclose(xfile);
 	free(verify_buffer);

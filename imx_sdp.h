@@ -21,6 +21,8 @@
 #ifndef __IMX_SDP_H__
 #define __IMX_SDP_H__
 
+#define str(s) #s
+
 struct ram_area {
 	unsigned start;
 	unsigned size;
@@ -119,11 +121,5 @@ void perform_mem_work(struct sdp_dev *dev, struct mem_work *mem);
 int do_status(struct sdp_dev *dev);
 
 int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify);
-
-#ifndef WIN32
-#define PATH_SEPARATOR	'/'
-#else
-#define PATH_SEPARATOR	'\\'
-#endif
 
 #endif /* __IMX_SDP_H__ */
