@@ -22,7 +22,6 @@
 #include <sys/types.h>
 #include <time.h>
 
-#include <unistd.h>
 #include <ctype.h>
 #include <errno.h>
 #include <string.h>
@@ -34,9 +33,6 @@
 
 #include "portable.h"
 #include "imx_sdp.h"
-
-extern int debugmode;
-#define dbg_printf(fmt, args...)	do{ if(debugmode) fprintf(stderr, fmt, ## args); } while(0)
 
 struct mach_id;
 struct mach_id {
