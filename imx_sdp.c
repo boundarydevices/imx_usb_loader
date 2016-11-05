@@ -21,43 +21,25 @@
 #include <sys/types.h>
 #include <time.h>
 
-#ifndef WIN32
-#include <unistd.h>
-#else
-#include <windows.h>
-#include <stddef.h>
-#endif
 #include <ctype.h>
-#ifdef WIN32
-#include <io.h>
-#endif
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
 
-
+#include "portable.h"
 #include "imx_sdp.h"
 int debugmode = 0;
 
-#ifndef WIN32
-
-#define dbg_printf(fmt, args...)	do{ if(debugmode) fprintf(stderr, fmt, ## args); } while(0)
+#ifdef __GNUC__
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#define BE32(x) __builtin_bswap32(x)
 #else
-
-#ifdef DEBUG
-#define dbg_printf(fmt, ...)	fprintf(stderr, fmt, __VA_ARGS__)
-#else
-#define dbg_printf(fmt, ...)    /* Don't do anything in release builds */
+#define BE32(x) x
 #endif
-
-#define R_OK	04
-#define access(filename,oflag)	_access(filename,oflag)
-
-
-#define usleep(us)	Sleep((us+999)/1000)
+#elif _MSC_VER // assume little endian...
+#define BE32(x) _byteswap_ulong(x)
 #endif
-
 
 #define get_min(a, b) (((a) < (b)) ? (a) : (b))
 
@@ -108,12 +90,13 @@ const unsigned char *move_string(unsigned char *dest, const unsigned char *src, 
 		}
 		dest[i++] = c;
 	}
+	dest[i] = '\0';
 	return src;
 }
 
 char const *get_base_path(char const *argv0)
 {
-	static char base_path[512];
+	static char base_path[MAX_PATH];
 	char *e;
 
 	strncpy(base_path, argv0, sizeof(base_path));
@@ -134,11 +117,31 @@ char const *get_base_path(char const *argv0)
 	return base_path;
 }
 
+char const *get_global_conf_path()
+{
+#ifdef WIN32
+	static char conf[MAX_PATH];
+	static char sep = PATH_SEPARATOR;
+	const char *subdir = "imx_loader";
+	char const *progdata = getenv("ProgramData");
+
+	strncpy(conf, progdata, sizeof(conf));
+	strncat(conf, &sep, sizeof(conf));
+	strncat(conf, subdir, sizeof(conf));
+	return conf;
+#else
+	char const *global_conf_path = SYSCONFDIR "/imx-loader.d/";
+	return global_conf_path;
+#endif
+}
+
 char const *conf_path_ok(char const *conf_path, char const *conf_file)
 {
-	static char conf[512];
+	static char conf[MAX_PATH];
+	static char sep = PATH_SEPARATOR;
 
 	strncpy(conf, conf_path, sizeof(conf));
+	strncat(conf, &sep, sizeof(conf));
 	strncat(conf, conf_file, sizeof(conf));
 	if (access(conf, R_OK) != -1) {
 		printf("config file <%s>\n", conf);
@@ -150,6 +153,7 @@ char const *conf_path_ok(char const *conf_path, char const *conf_file)
 char const *conf_file_name(char const *file, char const *base_path, char const *conf_path)
 {
 	char const *conf;
+	char cwd[MAX_PATH];
 
 	// First priority, conf path... (either -c, binary or /etc/imx-loader.d/)
 	dbg_printf("checking with conf_path %s\n", conf_path);
@@ -160,6 +164,13 @@ char const *conf_file_name(char const *file, char const *base_path, char const *
 	// Second priority, base path, relative path of binary...
 	dbg_printf("checking with base_path %s\n", base_path);
 	conf = conf_path_ok(base_path, file);
+	if (conf != NULL)
+		return conf;
+
+	// Third priority, working directory...
+	getcwd(cwd, MAX_PATH);
+	dbg_printf("checking with cwd %s\n", cwd);
+	conf = conf_path_ok(cwd, file);
 	if (conf != NULL)
 		return conf;
 
@@ -543,12 +554,6 @@ struct old_app_header {
 	uint32_t app_dest_ptr;
 };
 
-#if defined(__BYTE_ORDER) && __BYTE_ORDER == __BIG_ENDIAN || defined(__BIG_ENDIAN__)
-#define BE32(a) (a)
-#else
-#define BE32(a) (((a & 0xff000000)>>24) | ((a & 0x00ff0000)>>8) | ((a & 0x0000ff00)<<8) | ((a & 0x000000ff)<<24))
-#endif
-
 static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, unsigned cnt)
 {
 	struct sdp_command read_reg_command = {
@@ -694,7 +699,7 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 	int last_trans, err;
 	int retry = 0;
 	unsigned transferSize=0;
-	int max = dev->max_transfer;
+	unsigned int max = dev->max_transfer;
 	unsigned char tmp[64];
 
 	if (!hdr->dcd_ptr) {
@@ -752,7 +757,7 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 			else
 				max <<= 1;
 			/* Wait a few ms before retrying transfer */
-			usleep(10000);
+			msleep(10);
 			retry++;
 			continue;
 		}
@@ -1419,14 +1424,14 @@ int load_file(struct sdp_dev *dev,
 					max >>= 1;
 				else
 					max <<= 1;
-				usleep(10000);
+				msleep(10);
 				retry++;
 				continue;
 			}
 			max = dev->max_transfer;
 			retry = 0;
 			if (cnt < last_trans) {
-				printf("error: last_trans=0x%x, attempted only=0%x\n", last_trans, cnt);
+				dbg_printf("note: last_trans=0x%x, attempted only=0%x\n", last_trans, cnt);
 				cnt = last_trans;
 			}
 			if (!last_trans) {
@@ -1649,9 +1654,12 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 			err = dev->transfer(dev, 4, tmp, sizeof(tmp), 4, &last_trans);
 			if (tmp[0] || tmp[1] || tmp[2] || tmp[3])
 				printf("j4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+
+			// Ignore error. Documentation says "This report is sent by device only in case of an error jumping to the given address..."
+			err = 0;
 		}
 	}
-	ret = (fsize == transferSize) ? 0 : -16;
+	ret = (fsize <= transferSize) ? 0 : -16;
 cleanup:
 	fclose(xfile);
 	free(verify_buffer);
