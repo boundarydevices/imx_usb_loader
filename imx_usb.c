@@ -557,7 +557,7 @@ int main(int argc, char * const argv[])
 	struct sdp_work *cmd_head = NULL;
 	char const *conf;
 	char const *base_path = get_base_path(argv[0]);
-	char const *conf_path = SYSCONFDIR "/imx-loader.d/";
+	char const *conf_path = get_global_conf_path();
 
 	err = parse_opts(argc, argv, &conf_path, &verify, &cmd_head);
 	if (err < 0)
