@@ -110,6 +110,7 @@ int get_val(const char** pp, int base);
 const unsigned char *move_string(unsigned char *dest, const unsigned char *src, unsigned cnt);
 void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr);
 
+char const *get_global_conf_path(void);
 char const *get_base_path(char const *argv0);
 char const *conf_file_name(char const *file, char const *base_path, char const *conf_path);
 struct sdp_dev *parse_conf(const char *filename);
