@@ -109,7 +109,7 @@ const unsigned char *move_string(unsigned char *dest, const unsigned char *src, 
 
 char const *get_base_path(char const *argv0)
 {
-	static char base_path[512];
+	static char base_path[MAX_PATH];
 	char *e;
 
 	strncpy(base_path, argv0, sizeof(base_path));
@@ -130,11 +130,31 @@ char const *get_base_path(char const *argv0)
 	return base_path;
 }
 
+char const *get_global_conf_path()
+{
+#ifdef WIN32
+	static char conf[MAX_PATH];
+	static char sep = PATH_SEPARATOR;
+	const char *subdir = "imx_loader";
+	char const *progdata = getenv("ProgramData");
+
+	strncpy(conf, progdata, sizeof(conf));
+	strncat(conf, &sep, sizeof(conf));
+	strncat(conf, subdir, sizeof(conf));
+	return conf;
+#else
+	char const *global_conf_path = SYSCONFDIR "/imx-loader.d/";
+	return global_conf_path;
+#endif
+}
+
 char const *conf_path_ok(char const *conf_path, char const *conf_file)
 {
-	static char conf[512];
+	static char conf[MAX_PATH];
+	static char sep = PATH_SEPARATOR;
 
 	strncpy(conf, conf_path, sizeof(conf));
+	strncat(conf, &sep, sizeof(conf));
 	strncat(conf, conf_file, sizeof(conf));
 	if (access(conf, R_OK) != -1) {
 		printf("config file <%s>\n", conf);

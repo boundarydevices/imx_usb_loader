@@ -1,9 +1,10 @@
 #ifndef __PORTABLE_H__
 #define __PORTABLE_H__
 
-#ifndef WIN32
+#ifndef _MSC_VER
 #include <unistd.h>
-#else
+#endif
+#ifdef WIN32
 #include <Windows.h>
 #include <io.h>
 #endif
@@ -25,6 +26,7 @@
 #define read(fd,buffer,count)	_read(fd,buffer,count)
 #define close(fd)				_close(fd)
 #define access(filename,oflag)	_access(filename,oflag)
+#define getcwd(buffer, maxlen)	_getcwd(buffer, maxlen)
 #endif
 
 #endif /* __PORTABLE_H__ */
