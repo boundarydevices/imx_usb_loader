@@ -41,19 +41,6 @@ int debugmode = 0;
 #define BE32(x) _byteswap_ulong(x)
 #endif
 
-#ifndef WIN32
-
-#define dbg_printf(fmt, args...)	do{ if(debugmode) fprintf(stderr, fmt, ## args); } while(0)
-#else
-
-#ifdef DEBUG
-#define dbg_printf(fmt, ...)	fprintf(stderr, fmt, __VA_ARGS__)
-#else
-#define dbg_printf(fmt, ...)    /* Don't do anything in release builds */
-#endif
-#endif
-
-
 #define get_min(a, b) (((a) < (b)) ? (a) : (b))
 
 int get_val(const char** pp, int base)
