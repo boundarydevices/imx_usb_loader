@@ -43,8 +43,11 @@ library libusb-1.0.dll along with imx_usb.exe.
 #### Visual Studio
 
 The subdirectory msvc/ contains the project files for Visual Studio 2015.
-Make sure you have the Visual C++ component installed. Currently there is
-only a project for imx_uart.
+Make sure you have the Visual C++ component installed. There is one solution
+containing two projects, one for imx_usb and one for imx_uart. The imx_usb
+project requires libusb to be present at ../../libusb (relative to the msvc)
+directory. If you use an alternative location or compile libusb from source
+too, you will have to alter the include/library path in the project settings.
 
 ## Usage
 Using USB, your device should be detected automatically using the USB
