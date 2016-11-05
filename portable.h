@@ -1,11 +1,25 @@
 #ifndef __PORTABLE_H__
 #define __PORTABLE_H__
 
+extern int debugmode;
+
+#ifndef WIN32
+#define dbg_printf(fmt, args...)	do{ if(debugmode) fprintf(stderr, fmt, ## args); } while(0)
+#else
+
+#ifdef DEBUG
+#define dbg_printf(fmt, ...)	fprintf(stderr, fmt, __VA_ARGS__)
+#else
+#define dbg_printf(fmt, ...)    /* Don't do anything in release builds */
+#endif
+#endif
+
 #ifndef _MSC_VER
 #include <unistd.h>
 #endif
 #ifdef WIN32
 #include <Windows.h>
+#include <direct.h>
 #include <io.h>
 #else
 #include <linux/limits.h>
