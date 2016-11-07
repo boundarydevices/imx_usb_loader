@@ -18,10 +18,10 @@ USBLDFLAGS = -L/usr/lib -lusb-1.0
 endif
 CONFCPPFLAGS = -DSYSCONFDIR='"$(sysconfdir)"'
 
-imx_usb.o : imx_usb.c
+imx_usb.o : imx_usb.c imx_sdp.h portable.h
 	$(CC) -c $*.c -o $@ -Wstrict-prototypes -Wno-trigraphs -pipe -ggdb $(USBCFLAGS) $(CFLAGS) $(CONFCPPFLAGS)
 
-%.o : %.c
+%.o : %.c imx_sdp.h portable.h
 	$(CC) -c $*.c -o $@ -Wstrict-prototypes -Wno-trigraphs -pipe -ggdb $(CFLAGS) $(CONFCPPFLAGS)
 
 imx_usb: imx_usb.o imx_sdp.o
