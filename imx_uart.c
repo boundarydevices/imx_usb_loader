@@ -22,25 +22,12 @@
 #include <sys/types.h>
 #include <time.h>
 
-#ifndef WIN32
-#include <unistd.h>
-#else
-#include <Windows.h>
-#endif
 #include <ctype.h>
-#ifdef WIN32
-#include <io.h>
-#endif
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
-
-#ifndef WIN32
 #include <getopt.h>
-#else
-#include "getopt.h"	// use local re-implementation of getopt
-#endif
 
 #include <fcntl.h>
 
@@ -48,15 +35,9 @@
 #include <termios.h>
 
 #include <sys/ioctl.h>
-#else
-
-#define open(filename,oflag)	_open(filename,oflag)
-#define write(fd,buffer,count)	_write(fd,buffer,count)
-#define read(fd,buffer,count)	_read(fd,buffer,count)
-#define close(fd)				_close(fd)
-
 #endif
 
+#include "portable.h"
 #include "imx_sdp.h"
 
 #define get_min(a, b) (((a) < (b)) ? (a) : (b))
@@ -94,7 +75,6 @@ int uart_connect(int *uart_fd, char const *tty, int usertscts, DCB* orig)
 #endif
 {
 	int err = 0, count = 0;
-	int i;
 	int retry = 10;
 #ifndef WIN32
 	int flags = O_RDWR | O_NOCTTY | O_SYNC;
@@ -222,12 +202,10 @@ int uart_connect(int *uart_fd, char const *tty, int usertscts, DCB* orig)
 
 		printf(".");
 		fflush(stdout);
-#ifdef WIN32
-		Sleep(1000);
-#else
+#ifndef WIN32
 		err = tcflush(*uart_fd, TCIOFLUSH);
-		sleep(1);
 #endif
+		msleep(1000);
 	}
 
 	printf("\n");
@@ -236,21 +214,21 @@ int uart_connect(int *uart_fd, char const *tty, int usertscts, DCB* orig)
 	if (!retry) {
 		fprintf(stderr, "associating phase failed, make sure the device"
 		       " is in recovery mode\n");
+		close(*uart_fd);
 		return -2;
 	}
-
-	err = 0;
 
 	if (memcmp(magic, magic_response, sizeof(magic_response))) {
 		fprintf(stderr, "magic missmatch, response was 0x%08x\n",
 				*(uint32_t *)magic_response);
+		close(*uart_fd);
 		return -3;
 	}
 
 	fprintf(stderr, "association phase succeeded, response was 0x%08x\n",
 				*(uint32_t *)magic_response);
 
-	return err;
+	return 0;
 }
 
 #ifndef WIN32
@@ -398,7 +376,7 @@ int main(int argc, char * const argv[])
 		conffile++; // Filename starts after slash
 	}
 
-	conf = conf_file_name(conffile, basepath, SYSCONFDIR "/imx-loader.d/");
+	conf = conf_file_name(conffile, basepath, get_global_conf_path());
 	if (conf == NULL)
 		return -1;
 
@@ -410,7 +388,7 @@ int main(int argc, char * const argv[])
 	err = uart_connect(&uart_fd, ttyfile, usertscts, &orig);
 
 	if (err < 0)
-		goto out;
+		return EXIT_FAILURE;
 
 	p_id->transfer = &transfer_uart;
 
