@@ -1299,11 +1299,9 @@ int do_status(struct sdp_dev *dev)
 	printf("HAB security state: %s (0x%08x)\n", *hab_security == HAB_SECMODE_PROD ?
 			"production mode" : "development mode", *hab_security);
 
-	if (dev->mode == MODE_HID) {
-		err = dev->transfer(dev, 4, tmp, cnt, 4, &last_trans);
-		dbg_printf("report 4, read %i bytes, err=%i\n", last_trans, err);
-		dbg_printf("read=%02x %02x %02x %02x\n", tmp[0], tmp[1], tmp[2], tmp[3]);
-	}
+	err = dev->transfer(dev, 4, tmp, cnt, 4, &last_trans);
+	dbg_printf("report 4, read %i bytes, err=%i\n", last_trans, err);
+	dbg_printf("read=%02x %02x %02x %02x\n", tmp[0], tmp[1], tmp[2], tmp[3]);
 	return err;
 }
 
@@ -1625,7 +1623,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 
 		}
 	}
-	if (dev->mode == MODE_HID) if (type == FT_APP) {
+	if (type == FT_APP) {
 		printf("jumping to 0x%08x\n", header_addr);
 		jump_command.addr = BE32(header_addr);
 		//Any command will initiate jump for mx51, jump address is ignored by mx51
@@ -1644,12 +1642,12 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		err = dev->transfer(dev, 3, tmp, sizeof(tmp), 4, &last_trans);
 		if (err)
 			printf("j3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-		if (dev->mode == MODE_HID) {
-			memset(tmp, 0, sizeof(tmp));
-			err = dev->transfer(dev, 4, tmp, sizeof(tmp), 4, &last_trans);
-			if (tmp[0] || tmp[1] || tmp[2] || tmp[3])
-				printf("j4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-		}
+
+		memset(tmp, 0, sizeof(tmp));
+		err = dev->transfer(dev, 4, tmp, sizeof(tmp), 4, &last_trans);
+		if (tmp[0] || tmp[1] || tmp[2] || tmp[3])
+			printf("j4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n",
+				err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
 	}
 	ret = (fsize == transferSize) ? 0 : -16;
 cleanup:
