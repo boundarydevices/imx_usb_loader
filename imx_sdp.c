@@ -585,13 +585,17 @@ static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, 
 		return err;
 	}
 	rem = cnt;
+	retry = 0;
 	while (rem) {
 		tmp[0] = tmp[1] = tmp[2] = tmp[3] = 0;
 		err = dev->transfer(dev, 4, tmp, 64, rem > 64 ? 64 : rem, &last_trans);
 		if (err) {
 			printf("r4 in err=%i, last_trans=%i  %02x %02x %02x %02x cnt=%d rem=%d\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3], cnt, rem);
-			break;
+			if (retry++ > 8)
+				break;
+			continue;
 		}
+		retry = 0;
 		if ((last_trans > rem) || (last_trans > 64)) {
 			if ((last_trans == 64) && (cnt == rem)) {
 				/* Last transfer is expected to be too large for HID */
