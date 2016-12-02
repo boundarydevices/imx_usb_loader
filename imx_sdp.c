@@ -1077,6 +1077,8 @@ int verify_memory(struct sdp_dev *dev, FILE *xfile, unsigned offset,
 {
 	int mismatch = 0;
 	unsigned char file_buf[1024];
+	unsigned verified = 0;
+	unsigned total = size;
 	fseek(xfile, offset + verify_cnt, SEEK_SET);
 
 	while (size) {
@@ -1106,8 +1108,10 @@ int verify_memory(struct sdp_dev *dev, FILE *xfile, unsigned offset,
 			int ret;
 			request = get_min(cnt, sizeof(mem_buf));
 			ret = read_memory(dev, addr, mem_buf, request);
-			if (ret < 0)
+			if (ret < 0) {
+				printf("verified 0x%x of 0x%x before usb error\n", verified, total);
 				return ret;
+			}
 			if (memcmp(p, mem_buf, request)) {
 				unsigned char * m = mem_buf;
 				if (!mismatch)
@@ -1137,6 +1141,7 @@ int verify_memory(struct sdp_dev *dev, FILE *xfile, unsigned offset,
 			offset += request;
 			addr += request;
 			cnt -= request;
+			verified += request;
 		}
 	}
 	if (!mismatch)
