@@ -29,7 +29,11 @@
 #include <stdint.h>
 #include <getopt.h>
 
+#ifdef __FreeBSD__
+#include <libusb.h>
+#else
 #include <libusb-1.0/libusb.h>
+#endif
 
 #include "portable.h"
 #include "imx_sdp.h"
