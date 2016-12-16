@@ -461,6 +461,7 @@ int do_autodetect_dev(char const *base_path, char const *conf_path,
 	struct sdp_work *curr;
 	libusb_device_handle *h = NULL;
 	char const *conf;
+	int retry;
 
 	err = libusb_init(NULL);
 	if (err < 0)
@@ -530,7 +531,7 @@ out_close_usb:
 
 	/* More work to do? Try to rediscover the same device */
 	if (curr && !(err < 0)) {
-		for (int retry = 0; retry < 10; retry++) {
+		for (retry = 0; retry < 10; retry++) {
 			msleep(3000);
 			h = libusb_open_device_with_vid_pid(NULL, mach->vid, mach->pid);
 			if (h)
