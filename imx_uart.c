@@ -357,7 +357,6 @@ int main(int argc, char * const argv[])
 {
 	struct sdp_dev *p_id;
 	int err = 0;
-	int config = 0;
 	int verify = 0;
 	int usertscts = 1;
 	int associate = 1;
