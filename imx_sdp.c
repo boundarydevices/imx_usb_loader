@@ -844,8 +844,8 @@ static int write_dcd_table_ivt(struct sdp_dev *dev, struct ivt_header *hdr, unsi
 				return -1;
 			}
 			while (dcd < s_end) {
-				unsigned addr = (dcd[0] << 24) + (dcd[1] << 16) | (dcd[2] << 8) + dcd[3];
-				unsigned val = (dcd[4] << 24) + (dcd[5] << 16) | (dcd[6] << 8) + dcd[7];
+				unsigned addr = (dcd[0] << 24) + (dcd[1] << 16) + (dcd[2] << 8) + dcd[3];
+				unsigned val = (dcd[4] << 24) + (dcd[5] << 16) + (dcd[6] << 8) + dcd[7];
 				dcd += 8;
 				dbg_printf("write data *0x%08x = 0x%08x\n", addr, val);
 				err = write_memory(dev, addr, val);
@@ -857,15 +857,15 @@ static int write_dcd_table_ivt(struct sdp_dev *dev, struct ivt_header *hdr, unsi
 		case 0xcf000004: {
 			unsigned addr, count, mask, val;
 			dcd += 4;
-			addr = (dcd[0] << 24) + (dcd[1] << 16) | (dcd[2] << 8) + dcd[3];
-			mask = (dcd[4] << 24) + (dcd[5] << 16) | (dcd[6] << 8) + dcd[7];
+			addr = (dcd[0] << 24) + (dcd[1] << 16) + (dcd[2] << 8) + dcd[3];
+			mask = (dcd[4] << 24) + (dcd[5] << 16) + (dcd[6] << 8) + dcd[7];
 			count = 10000;
 			switch (s_length) {
 			case 12:
 				dcd += 8;
 				break;
 			case 16:
-				count = (dcd[8] << 24) + (dcd[9] << 16) | (dcd[10] << 8) + dcd[11];
+				count = (dcd[8] << 24) + (dcd[9] << 16) + (dcd[10] << 8) + dcd[11];
 				dcd += 12;
 				break;
 			default:
@@ -931,13 +931,13 @@ static int get_dcd_range_old(struct old_app_header *hdr,
 		printf("bad dcd_ptr %08x\n", hdr->dcd_ptr);
 		return -1;
 	}
-	val = (dcd[0] << 0) + (dcd[1] << 8) | (dcd[2] << 16) + (dcd[3] << 24);
+	val = (dcd[0] << 0) + (dcd[1] << 8) + (dcd[2] << 16) + (dcd[3] << 24);
 	if (val != DCD_BARKER) {
 		printf("Unknown tag\n");
 		return -1;
 	}
 	dcd += 4;
-	m_length =  (dcd[0] << 0) + (dcd[1] << 8) | (dcd[2] << 16) + (dcd[3] << 24);
+	m_length =  (dcd[0] << 0) + (dcd[1] << 8) + (dcd[2] << 16) + (dcd[3] << 24);
 	printf("main dcd length %x\n", m_length);
 	dcd += 4;
 	dcd_end = dcd + m_length;
@@ -960,9 +960,9 @@ static int write_dcd_table_old(struct sdp_dev *dev, struct old_app_header *hdr, 
 		return err;
 
 	while (dcd < dcd_end) {
-		unsigned type = (dcd[0] << 0) + (dcd[1] << 8) | (dcd[2] << 16) + (dcd[3] << 24);
-		unsigned addr = (dcd[4] << 0) + (dcd[5] << 8) | (dcd[6] << 16) + (dcd[7] << 24);
-		val = (dcd[8] << 0) + (dcd[9] << 8) | (dcd[10] << 16) + (dcd[11] << 24);
+		unsigned type = (dcd[0] << 0) + (dcd[1] << 8) + (dcd[2] << 16) + (dcd[3] << 24);
+		unsigned addr = (dcd[4] << 0) + (dcd[5] << 8) + (dcd[6] << 16) + (dcd[7] << 24);
+		val = (dcd[8] << 0) + (dcd[9] << 8) + (dcd[10] << 16) + (dcd[11] << 24);
 		dcd += 12;
 		if (type!=4) {
 			printf("!!!unknown type=%08x *0x%08x = 0x%08x\n", type, addr, val);
