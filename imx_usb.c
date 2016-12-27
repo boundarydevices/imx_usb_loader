@@ -40,7 +40,8 @@
 
 struct mach_id;
 struct mach_id {
-	struct mach_id * next;
+	struct mach_id *next;
+	struct mach_id *nextbatch;
 	unsigned short vid;
 	unsigned short pid;
 	char file_name[256];
@@ -85,24 +86,50 @@ static void print_devs(libusb_device **devs)
 		libusb_free_config_descriptor(config);
 	}
 }
-/*
-	{0x066f, 0x3780, "mx23", 0, 1024, MODE_HID, HDR_NONE},
-	{0x15a2, 0x004f, "mx28", 0, 1024, MODE_HID, HDR_NONE},
-	{0x15a2, 0x0052, "mx50", 0, 1024, MODE_HID, HDR_MX53},
-	{0x15a2, 0x0054, "mx6", 0x10000000, 1024, MODE_HID, HDR_MX53},
-	{0x15a2, 0x0041, "mx51", 0x90000000, 64, MODE_BULK, HDR_MX51},
-	{0x15a2, 0x004e, "mx53", 0x70000000, 512, MODE_BULK, HDR_MX53},
-	{0x066f, 0x37ff, "linux gadget", 512, MODE_BULK, HDR_NONE},
-};
-*/
+
+static struct mach_id *parse_imx_mach(const char **pp)
+{
+	unsigned short vid;
+	unsigned short pid;
+	struct mach_id *curr = NULL;
+	const char *p = *pp;
+
+	while (*p==' ') p++;
+	if (p[0] == '#')
+		return NULL;
+	vid = get_val(&p, 16);
+	if (p[0] != ':') {
+		printf("Syntax error(missing ':'): %s [%s]\n", p, *pp);
+		return NULL;
+	}
+	p++;
+	pid = get_val(&p, 16);
+	if (p[0] != ',') {
+		printf("Syntax error(missing ','): %s [%s]\n", p, *pp);
+		return NULL;
+	}
+	p++;
+	while (*p==' ') p++;
+	if (!(vid && pid)) {
+		printf("vid/pid cannot be 0: %s [%s]\n", p, *pp);
+		return NULL;
+	}
+	curr = (struct mach_id *)malloc(sizeof(struct mach_id));
+	curr->next = NULL;
+	curr->nextbatch = NULL;
+	curr->vid = vid;
+	curr->pid = pid;
+	p = move_string(curr->file_name, p, sizeof(curr->file_name) - 1);
+
+	*pp = p;
+	return curr;
+}
 
 /*
  * Parse USB specific machine configuration
  */
 static struct mach_id *parse_imx_conf(char const *filename)
 {
-	unsigned short vid;
-	unsigned short pid;
 	char line[512];
 	struct mach_id *head = NULL;
 	struct mach_id *tail = NULL;
@@ -117,38 +144,26 @@ static struct mach_id *parse_imx_conf(char const *filename)
 
 	while (fgets(line, sizeof(line), xfile) != NULL) {
 		p = line;
-		while (*p==' ') p++;
-		if (p[0] == '#')
+		curr = parse_imx_mach(&p);
+		if (!curr)
 			continue;
-		vid = get_val(&p, 16);
-		if (p[0] != ':') {
-			printf("Syntax error(missing ':'): %s [%s]\n", p, line);
-			continue;
-		}
-		p++;
-		pid = get_val(&p, 16);
-		if (p[0] != ',') {
-			printf("Syntax error(missing ','): %s [%s]\n", p, line);
-			continue;
-		}
-		p++;
-		while (*p==' ') p++;
-		if (!(vid && pid)) {
-			printf("vid/pid cannot be 0: %s [%s]\n", p, line);
-			continue;
-		}
-		curr = (struct mach_id *)malloc(sizeof(struct mach_id));
-		curr->next = NULL;
-		curr->vid = vid;
-		curr->pid = pid;
-		move_string(curr->file_name, p, sizeof(curr->file_name) - 1);
+
 		if (!head)
 			head = curr;
 		if (tail)
 			tail->next = curr;
 		tail = curr;
 		printf("vid=0x%04x pid=0x%04x file_name=%s\n", curr->vid, curr->pid, curr->file_name);
+
+		while (p[0] == ',') {
+			p++;
+			// Second machine in batch...
+			curr->nextbatch = parse_imx_mach(&p);
+			curr = curr->nextbatch;
+			printf("-> vid=0x%04x pid=0x%04x file_name=%s\n", curr->vid, curr->pid, curr->file_name);
+		}
 	}
+
 	fclose(xfile);
 	return head;
 }
@@ -476,7 +491,7 @@ int do_autodetect_dev(char const *base_path, char const *conf_path,
 	libusb_device *dev;
 	int err = 0;
 	ssize_t cnt;
-	struct sdp_work *curr;
+	struct sdp_work *curr = NULL;
 	libusb_device_handle *h = NULL;
 	char const *conf;
 	int retry;
@@ -494,71 +509,80 @@ int do_autodetect_dev(char const *base_path, char const *conf_path,
 	if (debugmode)
 		print_devs(devs);
 	dev = find_imx_dev(devs, &mach, list, bus, address);
+	libusb_free_device_list(devs, 1);
 	if (!dev) {
-		libusb_free_device_list(devs, 1);
 		err = LIBUSB_ERROR_NO_DEVICE;
 		goto out_deinit_usb;
 	}
 
-	err = libusb_open(dev, &h);
-	libusb_free_device_list(devs, 1);
-	if (err < 0) {
-		fprintf(stderr, "Could not open device vid=0x%x pid=0x%x: %s, err=%d\n",
-			mach->vid, mach->pid, libusb_strerror(err), err);
-		goto out_deinit_usb;
-	}
+	while (mach) {
+		// Get machine specific configuration file..
+		conf = conf_file_name(mach->file_name, base_path, conf_path);
+		if (conf == NULL) {
+			err = LIBUSB_ERROR_OTHER;
+			break;
+		}
 
-	// Get machine specific configuration file..
-	conf = conf_file_name(mach->file_name, base_path, conf_path);
-	if (conf == NULL) {
-		err = LIBUSB_ERROR_OTHER;
-		goto out_close_usb;
-	}
+		p_id = parse_conf(conf);
+		if (!p_id) {
+			err = LIBUSB_ERROR_OTHER;
+			break;
+		}
 
-	p_id = parse_conf(conf);
-	if (!p_id) {
-		err = LIBUSB_ERROR_OTHER;
-		goto out_close_usb;
-	}
+		if (p_id->mode == MODE_HID)
+			p_id->transfer = &transfer_hid;
+		if (p_id->mode == MODE_BULK)
+			p_id->transfer = &transfer_bulk;
 
-	if (p_id->mode == MODE_HID)
-		p_id->transfer = &transfer_hid;
-	if (p_id->mode == MODE_BULK)
-		p_id->transfer = &transfer_bulk;
+		curr = p_id->work;
 
-	// By default, use work from config file...
-	curr = p_id->work;
+		// Prefer work from command line, disable batch mode...
+		if (cmd_head) {
+			curr = cmd_head;
+			mach->nextbatch = NULL;
+		}
 
-	if (cmd_head != NULL)
-		curr = cmd_head;
+		if (curr == NULL) {
+			fprintf(stderr, "no job found\n");
+			err = LIBUSB_ERROR_OTHER;
+			break;
+		}
 
-	if (curr == NULL) {
-		fprintf(stderr, "no job found\n");
-		err = LIBUSB_ERROR_OTHER;
-		goto out_close_usb;
-	}
-
-retry:
-	// USB private pointer is libusb device handle...
-	p_id->priv = h;
-
-	err = do_work(p_id, &curr, verify);
-	dbg_printf("do_work finished with err=%d, curr=%p\n", err, curr);
-
-out_close_usb:
-	libusb_close(h);
-
-	/* More work to do? Try to rediscover the same device */
-	if (curr && !(err < 0)) {
-		for (retry = 0; retry < 10; retry++) {
-			msleep(3000);
+		// Wait for device...
+		printf("Trying to open device vid=0x%04x pid=0x%04x", mach->vid, mach->pid);
+		fflush(stdout);
+		for (retry = 0; retry < 50; retry++) {
 			h = libusb_open_device_with_vid_pid(NULL, mach->vid, mach->pid);
 			if (h)
-				goto retry;
+				break;
 
-			fprintf(stderr, "Could not open device vid=0x%x pid=0x%x err=%d\n",
-					mach->vid, mach->pid, err);
+			msleep(500);
+			if (retry % 2)
+				printf(".");
+			fflush(stdout);
 		}
+		printf("\n");
+		if (!h) {
+			err = LIBUSB_ERROR_NO_DEVICE;
+			fprintf(stderr, "Could not open device vid=0x%04x pid=0x%04x\n",
+				mach->vid, mach->pid);
+			break;
+		}
+
+		// USB private pointer is libusb device handle...
+		p_id->priv = h;
+
+		err = do_work(p_id, &curr, verify);
+		dbg_printf("do_work finished with err=%d, curr=%p\n", err, curr);
+
+		libusb_close(h);
+
+		if (err)
+			break;
+
+		// We might have to retry the same machine in case of plugin...
+		if (!curr)
+			mach = mach->nextbatch;
 	}
 
 out_deinit_usb:

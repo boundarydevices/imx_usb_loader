@@ -85,7 +85,8 @@ const char *move_string(char *dest, const char *src, unsigned cnt)
 	unsigned i = 0;
 	while (i < cnt) {
 		char c = *src++;
-		if ((!c) || (c == ' ') || (c == 0x0d) || (c == '\n') || (c == '#') || (c == ':')) {
+		if ((!c) || (c == ' ') || (c == 0x0d) || (c == '\n') ||
+		    (c == '#') || (c == ':') || (c == ',')) {
 			src--;
 			break;
 		}
