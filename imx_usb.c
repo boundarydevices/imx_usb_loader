@@ -252,12 +252,12 @@ int transfer_hid(struct sdp_dev *dev, int report, unsigned char *p, unsigned int
 		dbg_printf("libusb_interrupt_transfer, err=%d, trans=%d\n", err,
 				*last_trans);
 		if (err >= 0) {
-			if (tmp[0] == (unsigned char)report)
+			if (tmp[0] == (unsigned char)report) {
 				if (*last_trans > 1) {
 					*last_trans -= 1;
 					memcpy(p, &tmp[1], *last_trans);
 				}
-			else {
+			} else {
 				printf("Unexpected report %i err=%i, cnt=%i, last_trans=%i, %02x %02x %02x %02x\n",
 					tmp[0], err, cnt, *last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
 				err = 0;
@@ -473,7 +473,8 @@ int do_autodetect_dev(char const *base_path, char const *conf_path,
 		goto out_deinit_usb;
 	}
 
-//	print_devs(devs);
+	if (debugmode)
+		print_devs(devs);
 	dev = find_imx_dev(devs, &mach, list);
 	if (!dev) {
 		libusb_free_device_list(devs, 1);

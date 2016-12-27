@@ -919,7 +919,6 @@ static int get_dcd_range_old(struct old_app_header *hdr,
 	unsigned char* dcd;
 	unsigned val;
 	unsigned char* file_end = file_start + cnt;
-	int err = 0;
 
 	if (!hdr->dcd_ptr) {
 		printf("No dcd table, barker=%x\n", hdr->app_barker);
@@ -1208,7 +1207,6 @@ int perform_dcd(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start
 
 int clear_dcd_ptr(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start, unsigned cnt)
 {
-	int ret = 0;
 	switch (dev->header_type) {
 	case HDR_MX51:
 	{
