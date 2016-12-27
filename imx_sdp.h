@@ -39,7 +39,7 @@ struct sdp_work;
 struct sdp_work {
 	struct sdp_work *next;
 	struct mem_work *mem;
-	unsigned char filename[256];
+	char filename[256];
 	unsigned char dcd;
 	unsigned char clear_dcd;		//means clear dcd_ptr
 	unsigned char clear_boot_data;		//means clear boot data ptr
@@ -54,7 +54,7 @@ struct sdp_work {
 };
 
 struct sdp_dev {
-	unsigned char name[64];
+	char name[64];
 	unsigned short max_transfer;
 #define MODE_HID	0
 #define MODE_BULK	1
@@ -107,7 +107,7 @@ struct sdp_command {
 #pragma pack ()
 
 int get_val(const char** pp, int base);
-const unsigned char *move_string(unsigned char *dest, const unsigned char *src, unsigned cnt);
+const char *move_string(char *dest, const char *src, unsigned cnt);
 void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr);
 
 char const *get_global_conf_path(void);
