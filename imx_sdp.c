@@ -79,7 +79,7 @@ int get_val(const char** pp, int base)
 	return val;
 }
 
-const unsigned char *move_string(unsigned char *dest, const unsigned char *src, unsigned cnt)
+const char *move_string(char *dest, const char *src, unsigned cnt)
 {
 	unsigned i = 0;
 	while (i < cnt) {
@@ -570,7 +570,7 @@ static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, 
 	unsigned char tmp[64];
 
 	for (;;) {
-		err = dev->transfer(dev, 1, (char *)&read_reg_command, sizeof(read_reg_command), 0, &last_trans);
+		err = dev->transfer(dev, 1, (unsigned char *)&read_reg_command, sizeof(read_reg_command), 0, &last_trans);
 		if (!err)
 			break;
 		printf("read_reg_command err=%i, last_trans=%i\n", err, last_trans);
@@ -630,7 +630,7 @@ static int write_memory(struct sdp_dev *dev, unsigned addr, unsigned val)
 
 	dbg_printf("%s: addr=%08x, val=%08x\n", __func__, addr, val);
 	for (;;) {
-		err = dev->transfer(dev, 1, (char *)&write_reg_command, sizeof(write_reg_command), 0, &last_trans);
+		err = dev->transfer(dev, 1, (unsigned char *)&write_reg_command, sizeof(write_reg_command), 0, &last_trans);
 		if (!err)
 			break;
 		printf("write_reg_command err=%i, last_trans=%i\n", err, last_trans);
@@ -738,7 +738,7 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 
 	printf("loading DCD table @%#x\n", dev->dcd_addr);
 	for (;;) {
-		err = dev->transfer(dev, 1, (char *)&dl_command, sizeof(dl_command), 0, &last_trans);
+		err = dev->transfer(dev, 1, (unsigned char *)&dl_command, sizeof(dl_command), 0, &last_trans);
 		if (!err)
 			break;
 		printf("dl_command err=%i, last_trans=%i\n", err, last_trans);
@@ -983,7 +983,7 @@ void diff_long(unsigned char *src1, unsigned char *src2, unsigned cnt, unsigned 
 	unsigned *s2 = (unsigned *)src2;
 	unsigned i, j;
 	while (cnt >= 4) {
-		char *p = buf;
+		unsigned char *p = buf;
 		unsigned max = get_min(cnt >> 2, 8);
 		for (i = 0; i < (skip >> 2); i++) {
 			for (j=0; j < 9; j++)
@@ -1294,7 +1294,7 @@ int do_status(struct sdp_dev *dev)
 	int cnt = 64;
 
 	for (;;) {
-		err = dev->transfer(dev, 1, (char *)&status_command, sizeof(status_command), 0, &last_trans);
+		err = dev->transfer(dev, 1, (unsigned char *)&status_command, sizeof(status_command), 0, &last_trans);
 		dbg_printf("report 1, wrote %i bytes, err=%i\n", last_trans, err);
 		memset(tmp, 0, sizeof(tmp));
 
@@ -1399,7 +1399,7 @@ int load_file(struct sdp_dev *dev,
 	unsigned char tmp[64];
 
 	for (;;) {
-		err = dev->transfer(dev, 1, (char *)&dl_command, sizeof(dl_command), 0, &last_trans);
+		err = dev->transfer(dev, 1, (unsigned char *)&dl_command, sizeof(dl_command), 0, &last_trans);
 		if (!err)
 			break;
 		printf("dl_command err=%i, last_trans=%i\n", err, last_trans);
@@ -1645,7 +1645,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		//Any command will initiate jump for mx51, jump address is ignored by mx51
 		retry = 0;
 		for (;;) {
-			err = dev->transfer(dev, 1, (char *)&jump_command, sizeof(jump_command), 0, &last_trans);
+			err = dev->transfer(dev, 1, (unsigned char *)&jump_command, sizeof(jump_command), 0, &last_trans);
 			if (!err)
 				break;
 			printf("jump_command err=%i, last_trans=%i\n", err, last_trans);
