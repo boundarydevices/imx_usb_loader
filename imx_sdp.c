@@ -141,8 +141,8 @@ char const *conf_path_ok(char const *conf_path, char const *conf_file)
 	static char sep = PATH_SEPARATOR;
 
 	strncpy(conf, conf_path, sizeof(conf));
-	strncat(conf, &sep, sizeof(conf));
-	strncat(conf, conf_file, sizeof(conf));
+	strncat(conf, &sep, sizeof(conf) - strlen(conf) - 1);
+	strncat(conf, conf_file, sizeof(conf) - strlen(conf) - 1);
 	if (access(conf, R_OK) != -1) {
 		printf("config file <%s>\n", conf);
 		return conf;
