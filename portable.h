@@ -21,10 +21,13 @@ extern int debugmode;
 #include <Windows.h>
 #include <direct.h>
 #include <io.h>
-#else
+#endif
+#ifdef __linux__
 #include <linux/limits.h>
 #endif
-
+#ifdef __FreeBSD__
+#include <sys/param.h>
+#endif
 
 #ifndef WIN32
 #define PATH_SEPARATOR '/'

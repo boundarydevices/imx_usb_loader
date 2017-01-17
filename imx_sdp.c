@@ -79,7 +79,7 @@ int get_val(const char** pp, int base)
 	return val;
 }
 
-const unsigned char *move_string(unsigned char *dest, const unsigned char *src, unsigned cnt)
+const char *move_string(char *dest, const char *src, unsigned cnt)
 {
 	unsigned i = 0;
 	while (i < cnt) {
@@ -570,7 +570,7 @@ static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, 
 	unsigned char tmp[64];
 
 	for (;;) {
-		err = dev->transfer(dev, 1, (char *)&read_reg_command, sizeof(read_reg_command), 0, &last_trans);
+		err = dev->transfer(dev, 1, (unsigned char *)&read_reg_command, sizeof(read_reg_command), 0, &last_trans);
 		if (!err)
 			break;
 		printf("read_reg_command err=%i, last_trans=%i\n", err, last_trans);
@@ -585,13 +585,17 @@ static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, 
 		return err;
 	}
 	rem = cnt;
+	retry = 0;
 	while (rem) {
 		tmp[0] = tmp[1] = tmp[2] = tmp[3] = 0;
 		err = dev->transfer(dev, 4, tmp, 64, rem > 64 ? 64 : rem, &last_trans);
 		if (err) {
 			printf("r4 in err=%i, last_trans=%i  %02x %02x %02x %02x cnt=%d rem=%d\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3], cnt, rem);
-			break;
+			if (retry++ > 8)
+				break;
+			continue;
 		}
+		retry = 0;
 		if ((last_trans > rem) || (last_trans > 64)) {
 			if ((last_trans == 64) && (cnt == rem)) {
 				/* Last transfer is expected to be too large for HID */
@@ -626,7 +630,7 @@ static int write_memory(struct sdp_dev *dev, unsigned addr, unsigned val)
 
 	dbg_printf("%s: addr=%08x, val=%08x\n", __func__, addr, val);
 	for (;;) {
-		err = dev->transfer(dev, 1, (char *)&write_reg_command, sizeof(write_reg_command), 0, &last_trans);
+		err = dev->transfer(dev, 1, (unsigned char *)&write_reg_command, sizeof(write_reg_command), 0, &last_trans);
 		if (!err)
 			break;
 		printf("write_reg_command err=%i, last_trans=%i\n", err, last_trans);
@@ -734,7 +738,7 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 
 	printf("loading DCD table @%#x\n", dev->dcd_addr);
 	for (;;) {
-		err = dev->transfer(dev, 1, (char *)&dl_command, sizeof(dl_command), 0, &last_trans);
+		err = dev->transfer(dev, 1, (unsigned char *)&dl_command, sizeof(dl_command), 0, &last_trans);
 		if (!err)
 			break;
 		printf("dl_command err=%i, last_trans=%i\n", err, last_trans);
@@ -840,8 +844,8 @@ static int write_dcd_table_ivt(struct sdp_dev *dev, struct ivt_header *hdr, unsi
 				return -1;
 			}
 			while (dcd < s_end) {
-				unsigned addr = (dcd[0] << 24) + (dcd[1] << 16) | (dcd[2] << 8) + dcd[3];
-				unsigned val = (dcd[4] << 24) + (dcd[5] << 16) | (dcd[6] << 8) + dcd[7];
+				unsigned addr = (dcd[0] << 24) + (dcd[1] << 16) + (dcd[2] << 8) + dcd[3];
+				unsigned val = (dcd[4] << 24) + (dcd[5] << 16) + (dcd[6] << 8) + dcd[7];
 				dcd += 8;
 				dbg_printf("write data *0x%08x = 0x%08x\n", addr, val);
 				err = write_memory(dev, addr, val);
@@ -853,15 +857,15 @@ static int write_dcd_table_ivt(struct sdp_dev *dev, struct ivt_header *hdr, unsi
 		case 0xcf000004: {
 			unsigned addr, count, mask, val;
 			dcd += 4;
-			addr = (dcd[0] << 24) + (dcd[1] << 16) | (dcd[2] << 8) + dcd[3];
-			mask = (dcd[4] << 24) + (dcd[5] << 16) | (dcd[6] << 8) + dcd[7];
+			addr = (dcd[0] << 24) + (dcd[1] << 16) + (dcd[2] << 8) + dcd[3];
+			mask = (dcd[4] << 24) + (dcd[5] << 16) + (dcd[6] << 8) + dcd[7];
 			count = 10000;
 			switch (s_length) {
 			case 12:
 				dcd += 8;
 				break;
 			case 16:
-				count = (dcd[8] << 24) + (dcd[9] << 16) | (dcd[10] << 8) + dcd[11];
+				count = (dcd[8] << 24) + (dcd[9] << 16) + (dcd[10] << 8) + dcd[11];
 				dcd += 12;
 				break;
 			default:
@@ -915,7 +919,6 @@ static int get_dcd_range_old(struct old_app_header *hdr,
 	unsigned char* dcd;
 	unsigned val;
 	unsigned char* file_end = file_start + cnt;
-	int err = 0;
 
 	if (!hdr->dcd_ptr) {
 		printf("No dcd table, barker=%x\n", hdr->app_barker);
@@ -927,13 +930,13 @@ static int get_dcd_range_old(struct old_app_header *hdr,
 		printf("bad dcd_ptr %08x\n", hdr->dcd_ptr);
 		return -1;
 	}
-	val = (dcd[0] << 0) + (dcd[1] << 8) | (dcd[2] << 16) + (dcd[3] << 24);
+	val = (dcd[0] << 0) + (dcd[1] << 8) + (dcd[2] << 16) + (dcd[3] << 24);
 	if (val != DCD_BARKER) {
 		printf("Unknown tag\n");
 		return -1;
 	}
 	dcd += 4;
-	m_length =  (dcd[0] << 0) + (dcd[1] << 8) | (dcd[2] << 16) + (dcd[3] << 24);
+	m_length =  (dcd[0] << 0) + (dcd[1] << 8) + (dcd[2] << 16) + (dcd[3] << 24);
 	printf("main dcd length %x\n", m_length);
 	dcd += 4;
 	dcd_end = dcd + m_length;
@@ -956,9 +959,9 @@ static int write_dcd_table_old(struct sdp_dev *dev, struct old_app_header *hdr, 
 		return err;
 
 	while (dcd < dcd_end) {
-		unsigned type = (dcd[0] << 0) + (dcd[1] << 8) | (dcd[2] << 16) + (dcd[3] << 24);
-		unsigned addr = (dcd[4] << 0) + (dcd[5] << 8) | (dcd[6] << 16) + (dcd[7] << 24);
-		val = (dcd[8] << 0) + (dcd[9] << 8) | (dcd[10] << 16) + (dcd[11] << 24);
+		unsigned type = (dcd[0] << 0) + (dcd[1] << 8) + (dcd[2] << 16) + (dcd[3] << 24);
+		unsigned addr = (dcd[4] << 0) + (dcd[5] << 8) + (dcd[6] << 16) + (dcd[7] << 24);
+		val = (dcd[8] << 0) + (dcd[9] << 8) + (dcd[10] << 16) + (dcd[11] << 24);
 		dcd += 12;
 		if (type!=4) {
 			printf("!!!unknown type=%08x *0x%08x = 0x%08x\n", type, addr, val);
@@ -979,7 +982,7 @@ void diff_long(unsigned char *src1, unsigned char *src2, unsigned cnt, unsigned 
 	unsigned *s2 = (unsigned *)src2;
 	unsigned i, j;
 	while (cnt >= 4) {
-		char *p = buf;
+		unsigned char *p = buf;
 		unsigned max = get_min(cnt >> 2, 8);
 		for (i = 0; i < (skip >> 2); i++) {
 			for (j=0; j < 9; j++)
@@ -1073,6 +1076,8 @@ int verify_memory(struct sdp_dev *dev, FILE *xfile, unsigned offset,
 {
 	int mismatch = 0;
 	unsigned char file_buf[1024];
+	unsigned verified = 0;
+	unsigned total = size;
 	fseek(xfile, offset + verify_cnt, SEEK_SET);
 
 	while (size) {
@@ -1102,8 +1107,10 @@ int verify_memory(struct sdp_dev *dev, FILE *xfile, unsigned offset,
 			int ret;
 			request = get_min(cnt, sizeof(mem_buf));
 			ret = read_memory(dev, addr, mem_buf, request);
-			if (ret < 0)
+			if (ret < 0) {
+				printf("verified 0x%x of 0x%x before usb error\n", verified, total);
 				return ret;
+			}
 			if (memcmp(p, mem_buf, request)) {
 				unsigned char * m = mem_buf;
 				if (!mismatch)
@@ -1133,6 +1140,7 @@ int verify_memory(struct sdp_dev *dev, FILE *xfile, unsigned offset,
 			offset += request;
 			addr += request;
 			cnt -= request;
+			verified += request;
 		}
 	}
 	if (!mismatch)
@@ -1199,7 +1207,6 @@ int perform_dcd(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start
 
 int clear_dcd_ptr(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start, unsigned cnt)
 {
-	int ret = 0;
 	switch (dev->header_type) {
 	case HDR_MX51:
 	{
@@ -1285,7 +1292,7 @@ int do_status(struct sdp_dev *dev)
 	int cnt = 64;
 
 	for (;;) {
-		err = dev->transfer(dev, 1, (char *)&status_command, sizeof(status_command), 0, &last_trans);
+		err = dev->transfer(dev, 1, (unsigned char *)&status_command, sizeof(status_command), 0, &last_trans);
 		dbg_printf("report 1, wrote %i bytes, err=%i\n", last_trans, err);
 		memset(tmp, 0, sizeof(tmp));
 
@@ -1390,7 +1397,7 @@ int load_file(struct sdp_dev *dev,
 	unsigned char tmp[64];
 
 	for (;;) {
-		err = dev->transfer(dev, 1, (char *)&dl_command, sizeof(dl_command), 0, &last_trans);
+		err = dev->transfer(dev, 1, (unsigned char *)&dl_command, sizeof(dl_command), 0, &last_trans);
 		if (!err)
 			break;
 		printf("dl_command err=%i, last_trans=%i\n", err, last_trans);
@@ -1636,7 +1643,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		//Any command will initiate jump for mx51, jump address is ignored by mx51
 		retry = 0;
 		for (;;) {
-			err = dev->transfer(dev, 1, (char *)&jump_command, sizeof(jump_command), 0, &last_trans);
+			err = dev->transfer(dev, 1, (unsigned char *)&jump_command, sizeof(jump_command), 0, &last_trans);
 			if (!err)
 				break;
 			printf("jump_command err=%i, last_trans=%i\n", err, last_trans);
