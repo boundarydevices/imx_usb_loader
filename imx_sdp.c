@@ -728,6 +728,11 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 		return -1;
 	}
 
+	if (length == 0) {
+		printf("No DCD table, skip\n");
+		return 0;
+	}
+
 	dl_command.cnt = BE32(length);
 
 	dcd_end = dcd + length;
