@@ -25,6 +25,9 @@ extern int debugmode;
 #ifdef __linux__
 #include <linux/limits.h>
 #endif
+#ifdef __APPLE__
+#include <sys/syslimits.h>
+#endif
 #ifdef __FreeBSD__
 #include <sys/param.h>
 #endif

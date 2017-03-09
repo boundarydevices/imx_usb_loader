@@ -49,6 +49,17 @@ project requires libusb to be present at ../../libusb (relative to the msvc)
 directory. If you use an alternative location or compile libusb from source
 too, you will have to alter the include/library path in the project settings.
 
+### macOS
+
+libusb and pkg-config can be installed via Homebrew.
+
+If imx_usb fails to claim interface, com.apple.driver.usb.IOUSBHostHIDDevice
+needs to be unloaded so libusb can claim, run:
+
+```
+sudo kextunload -b com.apple.driver.usb.IOUSBHostHIDDevice
+```
+
 ## Usage
 Using USB, your device should be detected automatically using the USB
 VID/PID from imx_usb.conf. Using UART, the user has to specify a
