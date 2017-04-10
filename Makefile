@@ -20,6 +20,7 @@ CONFCPPFLAGS = -DSYSCONFDIR='"$(sysconfdir)"'
 CFLAGS ?= -Wall -Wstrict-prototypes -Wno-trigraphs
 
 imx_usb.o : imx_usb.c imx_sdp.h portable.h
+
 	$(CC) -c $*.c -o $@ -pipe -ggdb $(USBCFLAGS) $(CFLAGS) $(CONFCPPFLAGS)
 
 %.o : %.c imx_sdp.h portable.h
