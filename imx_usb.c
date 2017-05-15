@@ -153,7 +153,7 @@ static struct mach_id *parse_imx_conf(char const *filename)
 	return head;
 }
 
-static struct mach_id * imx_device(unsigned short vid, unsigned short pid, struct mach_id *p)
+static struct mach_id *imx_device(unsigned short vid, unsigned short pid, struct mach_id *p)
 {
 //	printf("%s: vid=%x pid=%x\n", __func__, vid, pid);
 	while (p) {
@@ -165,7 +165,7 @@ static struct mach_id * imx_device(unsigned short vid, unsigned short pid, struc
 }
 
 
-static libusb_device *find_imx_dev(libusb_device **devs, struct mach_id **pp_id, struct mach_id *list)
+static libusb_device *find_imx_dev(libusb_device **devs, struct mach_id **pp_id, struct mach_id *list, int device_count)
 {
 	int i = 0;
 	struct mach_id *p;
@@ -179,8 +179,13 @@ static libusb_device *find_imx_dev(libusb_device **devs, struct mach_id **pp_id,
 			fprintf(stderr, "failed to get device descriptor");
 			return NULL;
 		}
+        uint8_t bnum = libusb_get_bus_number(dev);
+        uint8_t dnum = libusb_get_device_address(dev);
+        fprintf(stderr, " * bus_number: %d\n", bnum);
+        fprintf(stderr, " * device_number: %d\n", dnum);
 		p = imx_device(desc.idVendor, desc.idProduct, list);
-		if (p) {
+        printf("device_count: %d\n", i);
+		if (p && (device_count == 0 || device_count == i) ) {
 			*pp_id = p;
 			return dev;
 		}
@@ -333,7 +338,7 @@ void print_usage(void)
 }
 
 int parse_opts(int argc, char * const *argv, char const **configdir,
-		int *verify, struct sdp_work **cmd_head)
+		int *verify, int *device_count, struct sdp_work **cmd_head)
 {
 	int c;
 
@@ -345,7 +350,7 @@ int parse_opts(int argc, char * const *argv, char const **configdir,
 		{0,		0,			0, 0 },
 	};
 
-	while ((c = getopt_long(argc, argv, "+hdvc:", long_options, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "+hdvcn:", long_options, NULL)) != -1) {
 		switch (c)
 		{
 		case 'h':
@@ -361,6 +366,9 @@ int parse_opts(int argc, char * const *argv, char const **configdir,
 		case 'c':
 			*configdir = optarg;
 			break;
+        case 'n':
+            *device_count = atoi(optarg);
+            break;
 		}
 	}
 
