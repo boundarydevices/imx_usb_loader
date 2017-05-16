@@ -185,9 +185,14 @@ static libusb_device *find_imx_dev(libusb_device **devs, struct mach_id **pp_id,
         fprintf(stderr, " * device_number: %d\n", dnum);
 		p = imx_device(desc.idVendor, desc.idProduct, list);
         printf("device_count: %d\n", i);
-		if (p && (device_count == 0 || device_count == i) ) {
-			*pp_id = p;
-			return dev;
+		//if (p && (device_count == 0 || device_count == i) ) {
+		if (p) {
+			if (device_count == 0) {
+                *pp_id = p;
+                return dev;
+            } else {
+                device_count--;
+            }
 		}
 	}
 	fprintf(stderr, "no matching USB device found\n");
@@ -462,7 +467,8 @@ err_release_interface:
 }
 
 int do_autodetect_dev(char const *base_path, char const *conf_path,
-		struct mach_id *list, int verify, struct sdp_work *cmd_head)
+		struct mach_id *list, int verify, struct sdp_work *cmd_head,
+		int device_count)
 {
 	struct sdp_dev *p_id;
 	struct mach_id *mach;
@@ -487,7 +493,7 @@ int do_autodetect_dev(char const *base_path, char const *conf_path,
 
 	if (debugmode)
 		print_devs(devs);
-	dev = find_imx_dev(devs, &mach, list);
+	dev = find_imx_dev(devs, &mach, list, device_count);
 	if (!dev) {
 		libusb_free_device_list(devs, 1);
 		err = LIBUSB_ERROR_NO_DEVICE;
@@ -569,8 +575,9 @@ int main(int argc, char * const argv[])
 	char const *conf;
 	char const *base_path = get_base_path(argv[0]);
 	char const *conf_path = get_global_conf_path();
+    int device_count = 0;
 
-	err = parse_opts(argc, argv, &conf_path, &verify, &cmd_head);
+	err = parse_opts(argc, argv, &conf_path, &verify, &device_count, &cmd_head);
 	if (err < 0)
 		return EXIT_FAILURE;
 	else if (err > 0)
@@ -585,7 +592,7 @@ int main(int argc, char * const argv[])
 	if (!list)
 		return EXIT_FAILURE;
 
-	err = do_autodetect_dev(base_path, conf_path, list, verify, cmd_head);
+	err = do_autodetect_dev(base_path, conf_path, list, verify, cmd_head, device_count);
 	if (err < 0)
 		return EXIT_FAILURE;
 
