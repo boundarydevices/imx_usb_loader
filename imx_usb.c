@@ -165,7 +165,7 @@ static struct mach_id * imx_device(unsigned short vid, unsigned short pid, struc
 }
 
 
-static libusb_device *find_imx_dev(libusb_device **devs, struct mach_id **pp_id, struct mach_id *list)
+static libusb_device *find_imx_dev(libusb_device **devs, struct mach_id **pp_id, struct mach_id *list, int bus, int address)
 {
 	int i = 0;
 	struct mach_id *p;
@@ -174,6 +174,9 @@ static libusb_device *find_imx_dev(libusb_device **devs, struct mach_id **pp_id,
 		libusb_device *dev = devs[i++];
 		if (!dev)
 			break;
+		if ((bus >= 0 && libusb_get_bus_number(dev) != bus) ||
+		    (address >= 0 && libusb_get_device_address(dev) != address))
+			continue;
 		int r = libusb_get_device_descriptor(dev, &desc);
 		if (r < 0) {
 			fprintf(stderr, "failed to get device descriptor");
@@ -323,6 +326,8 @@ void print_usage(void)
 		"   -d --debugmode	Enable debug logs\n"
 		"   -c --configdir=DIR	Reading configuration directory from non standard\n"
 		"			directory.\n"
+		"   -b --bus=NUM		Filter bus number.\n"
+		"   -D --device=NUM	Filter device address.\n"
 		"\n"
 		"And where [JOBS...] are\n"
 		"   FILE [-lLOADADDR] [-sSIZE] ...\n"
@@ -333,7 +338,7 @@ void print_usage(void)
 }
 
 int parse_opts(int argc, char * const *argv, char const **configdir,
-		int *verify, struct sdp_work **cmd_head)
+		int *verify, struct sdp_work **cmd_head, int *bus, int *address)
 {
 	int c;
 
@@ -342,10 +347,12 @@ int parse_opts(int argc, char * const *argv, char const **configdir,
 		{"debugmode",	no_argument, 		0, 'd' },
 		{"verify",	no_argument, 		0, 'v' },
 		{"configdir",	required_argument, 	0, 'c' },
+		{"bus",		required_argument,	0, 'b' },
+		{"device",	required_argument, 	0, 'D' },
 		{0,		0,			0, 0 },
 	};
 
-	while ((c = getopt_long(argc, argv, "+hdvc:", long_options, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "+hdvc:b:D:", long_options, NULL)) != -1) {
 		switch (c)
 		{
 		case 'h':
@@ -360,6 +367,12 @@ int parse_opts(int argc, char * const *argv, char const **configdir,
 			break;
 		case 'c':
 			*configdir = optarg;
+			break;
+		case 'b':
+			*bus = atoi(optarg);
+			break;
+		case 'D':
+			*address = atoi(optarg);
 			break;
 		}
 	}
@@ -454,7 +467,8 @@ err_release_interface:
 }
 
 int do_autodetect_dev(char const *base_path, char const *conf_path,
-		struct mach_id *list, int verify, struct sdp_work *cmd_head)
+		struct mach_id *list, int verify, struct sdp_work *cmd_head,
+		int bus, int address)
 {
 	struct sdp_dev *p_id;
 	struct mach_id *mach;
@@ -479,7 +493,7 @@ int do_autodetect_dev(char const *base_path, char const *conf_path,
 
 	if (debugmode)
 		print_devs(devs);
-	dev = find_imx_dev(devs, &mach, list);
+	dev = find_imx_dev(devs, &mach, list, bus, address);
 	if (!dev) {
 		libusb_free_device_list(devs, 1);
 		err = LIBUSB_ERROR_NO_DEVICE;
@@ -561,8 +575,10 @@ int main(int argc, char * const argv[])
 	char const *conf;
 	char const *base_path = get_base_path(argv[0]);
 	char const *conf_path = get_global_conf_path();
+	int bus = -1;
+	int address = -1;
 
-	err = parse_opts(argc, argv, &conf_path, &verify, &cmd_head);
+	err = parse_opts(argc, argv, &conf_path, &verify, &cmd_head, &bus, &address);
 	if (err < 0)
 		return EXIT_FAILURE;
 	else if (err > 0)
@@ -577,7 +593,7 @@ int main(int argc, char * const argv[])
 	if (!list)
 		return EXIT_FAILURE;
 
-	err = do_autodetect_dev(base_path, conf_path, list, verify, cmd_head);
+	err = do_autodetect_dev(base_path, conf_path, list, verify, cmd_head, bus, address);
 	if (err < 0)
 		return EXIT_FAILURE;
 
