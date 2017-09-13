@@ -22,7 +22,7 @@ CFLAGS ?= -Wall -Wstrict-prototypes -Wno-trigraphs
 imx_usb.o : imx_usb.c imx_sdp.h portable.h
 	$(CC) -c $*.c -o $@ -pipe -ggdb $(USBCFLAGS) $(CFLAGS) $(CONFCPPFLAGS)
 
-%.o : %.c imx_sdp.h portable.h
+%.o : %.c imx_sdp.h portable.h image.h
 	$(CC) -c $*.c -o $@ -pipe -ggdb $(CFLAGS) $(CONFCPPFLAGS)
 
 imx_usb: imx_usb.o imx_sdp.o
