@@ -38,6 +38,11 @@ install: imx_usb imx_uart
 	install -m755 imx_usb '$(DESTDIR)$(bindir)/imx_usb'
 	install -m755 imx_uart '$(DESTDIR)$(bindir)/imx_uart'
 
+uninstall:
+	rm -rf '$(DESTDIR)$(sysconfdir)/imx-loader.d/'
+	rm -rf '$(DESTDIR)$(bindir)/imx_usb'
+	rm -rf '$(DESTDIR)$(bindir)/imx_uart'
+
 clean:
 	rm -f imx_usb imx_uart imx_usb.o imx_uart.o imx_sdp.o
 
