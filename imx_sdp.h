@@ -67,7 +67,9 @@ struct sdp_dev {
 #define HDR_NONE	0
 #define HDR_MX51	1
 #define HDR_MX53	2
-#define HDR_UBOOT	3
+#define HDR_MX8QM	3
+#define HDR_MX8QX	4
+#define HDR_UBOOT	5
 	unsigned char header_type;
 	unsigned dcd_addr;
 	unsigned max_dcd_size;
@@ -113,6 +115,8 @@ struct sdp_command {
 	uint8_t rsvd;
 };
 #pragma pack ()
+
+#define IVT_OFFSET_SD           (0x400)
 
 void dump_long(unsigned char *src, unsigned cnt, unsigned addr, unsigned skip);
 void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr);

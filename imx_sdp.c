@@ -115,6 +115,98 @@ struct dcd_v2 {
 	unsigned char *addr_data;
 };
 
+/*
+ * i.MX8QM image format
+ */
+#define MAX_NUM_IMGS_V3         4
+#define MAX_NUM_OF_CONTAINER_V3 2
+#define IVT_HEADER_TAG_V3       0xD1
+#define IVT_VERSION_V3		0x43
+
+#pragma pack (1)
+struct boot_img_v3 {
+	uint64_t src;		/*8*/
+	uint64_t dst;		/*8*/
+	uint64_t entry;		/*8*/
+	uint32_t size;		/*4*/
+	uint32_t flags;		/*4*/
+}; /*32*/
+
+struct boot_data_v3 {
+	uint32_t num_images;	/*4*/
+	uint32_t bd_size;	/*4*/
+	uint32_t bd_flags;	/*4*/
+	uint32_t reserved;	/*4*/
+	struct boot_img_v3 img[MAX_NUM_IMGS_V3];	/*128*/
+	struct boot_img_v3 scd;                 /*32*/
+	struct boot_img_v3 csf;                 /*32*/
+	struct boot_img_v3 img_reserved;        /* Reserved for future, 32 */
+};		/*240*/
+
+struct flash_header_v3 {
+	struct ivt_header header;	/*4*/
+	uint32_t reserved1;	/*4*/
+	uint64_t dcd_ptr;	/*8*/
+	uint64_t boot_data_ptr;	/*8*/
+	uint64_t self;		/*8*/
+	uint64_t csf;		/*8*/
+	uint64_t scd;		/*8*/
+	uint64_t reserved2;	/*8*/
+	uint64_t reserved3;	/*8*/
+};		/*64*/
+
+struct imx_header_v3 {
+	struct flash_header_v3 fhdr[MAX_NUM_OF_CONTAINER_V3];	/*64*/
+	struct boot_data_v3 boot_data[MAX_NUM_OF_CONTAINER_V3]; /*128*/
+	struct dcd_v2 dcd_table; /*2880*/
+}; /*3072*/
+#pragma pack ()
+
+/*
+ * i.MX8QX image format
+ */
+#define MAX_NUM_IMGS_V4         6
+#define MAX_NUM_OF_CONTAINER_V4 2
+#define IVT_HEADER_TAG_V4       0xDE
+#define IVT_VERSION_V4		0x43
+
+#pragma pack (1)
+struct boot_img_v4 {
+	uint64_t src;		/*8*/
+	uint64_t dst;		/*8*/
+	uint64_t entry;		/*8*/
+	uint32_t size;		/*4*/
+	uint32_t hab_flags;	/*4*/
+	uint32_t flags1;	/*4*/
+	uint32_t flags2;	/*4*/
+}; /*40*/
+
+struct boot_data_v4 {
+	uint32_t num_images;	/*4*/
+	uint32_t bd_size;	/*4*/
+	uint32_t bd_flags;	/*4*/
+	uint32_t reserved;	/*4*/
+	struct boot_img_v4 img[MAX_NUM_IMGS_V4];	/*240*/
+};		/*256*/
+
+struct flash_header_v4 {
+	struct ivt_header header;	/*4*/
+	uint32_t ver;	/*4*/
+	uint64_t dcd_ptr;	/*8*/
+	uint64_t boot_data_ptr;	/*8*/
+	uint64_t self;		/*8*/
+	uint64_t csf;		/*8*/
+	uint64_t next;		/*8*/
+};		/*48*/
+
+
+struct imx_header_v4 {
+	struct flash_header_v4 fhdr[MAX_NUM_OF_CONTAINER_V4];	/*96*/
+	struct boot_data_v4 boot_data[MAX_NUM_OF_CONTAINER_V4]; /*512*/
+	struct dcd_v2 dcd_table; /*2880*/
+}; /*3488*/
+#pragma pack ()
+
 
 /*
  * MX51 header type
@@ -1431,6 +1523,299 @@ static int process_header(struct sdp_dev *dev, const struct sdp_work *curr,
 	return -EINVAL;
 }
 
+int write_file(struct sdp_dev *dev, unsigned char *buf, unsigned length,
+		unsigned dladdr, unsigned char type)
+{
+	struct sdp_command dl_command = {
+		.cmd = SDP_WRITE_FILE,
+		.addr = BE32(dladdr),
+		.format = 0,
+		.cnt = BE32(length),
+		.data = 0,
+		.rsvd = type};
+	int last_trans, err;
+	int retry = 0;
+	unsigned transferSize=0;
+	int max = dev->max_transfer;
+	unsigned int sec, status;
+
+	for (;;) {
+		err = dev->transfer(dev, 1, (unsigned char *)&dl_command, sizeof(dl_command), 0, &last_trans);
+		if (!err)
+			break;
+		printf("dl_command err=%i, last_trans=%i\n", err, last_trans);
+		if (retry > 5)
+			return -4;
+		retry++;
+	}
+
+	while (length) {
+		err = dev->transfer(dev, 2, buf, get_min(length, max), 0, &last_trans);
+//		printf("err=%i, last_trans=0x%x, cnt=0x%x, max=0x%x\n", err, last_trans, cnt, max);
+		if (err) {
+			printf("out err=%i, last_trans=%i length=0x%x max=0x%x transferSize=0x%X retry=%i\n", err, last_trans, length, max, transferSize, retry);
+			if (retry >= 10) {
+				printf("Giving up\n");
+				return err;
+			}
+			if (max >= 16)
+				max >>= 1;
+			else
+				max <<= 1;
+			msleep(10);
+			retry++;
+				continue;
+		}
+		max = dev->max_transfer;
+		retry = 0;
+		if (length < last_trans) {
+			dbg_printf("note: last_trans=0x%x, attempted only=0%x\n", last_trans, length);
+			length = last_trans;
+		}
+		if (!last_trans) {
+			printf("Nothing last_trans, err=%i\n", err);
+			break;
+		}
+		buf += last_trans;
+		length -= last_trans;
+		transferSize += last_trans;
+	}
+
+	printf("\r\n<<<%i, %i bytes>>>\r\n", length, transferSize);
+
+	err = do_response(dev, 3, &sec, false);
+	if (err)
+		return err;
+
+	err = do_response(dev, 4, &status, false);
+	if (err)
+		return err;
+
+	if (status == 0x88888888UL)
+		printf("succeeded");
+	else
+		printf("failed");
+	printf(" (security 0x%08x, status 0x%08x)\n", sec, status);
+
+	return transferSize;
+}
+
+static int do_initialize_ecc(struct sdp_dev *dev, unsigned long addr, int length)
+{
+	unsigned char *buf;
+
+	/* Initialize internal RAM due to ECC? */
+	buf = malloc(length);
+	if (!buf)
+		return -1;
+	memset(buf, 0, length);
+	write_file(dev, buf, length, addr, FT_LOAD_ONLY);
+	free(buf);
+
+	return 0;
+}
+
+static uint64_t SCUViewAddr(uint64_t addr)
+{
+	if (addr >= 0x30000000 && addr < 0x40000000)
+		return addr - 0x11000000;
+
+	return addr;
+}
+
+static int do_download_v4(struct sdp_dev *dev, const struct sdp_work *curr, int verify)
+{
+	FILE* xfile;
+	unsigned char *buf = NULL;
+	unsigned int header_address;
+	int ret, cnt, i, fsize;
+	struct imx_header_v4 *header;
+
+	xfile = fopen(curr->filename, "rb" );
+	if (!xfile) {
+		printf("\r\nerror, can not open input file: %s\r\n", curr->filename);
+		return -5;
+	}
+
+	fsize = get_file_size(xfile);
+	buf = malloc(fsize);
+	if (!buf) {
+		printf("\r\nerror, out of memory\r\n");
+		ret = -2;
+		goto free;
+	}
+
+	cnt = fread(buf, 1 , fsize, xfile);
+	printf("loaded %d of %d\n", cnt, fsize);
+
+	header = (struct imx_header_v4 *)buf;
+
+	for (i = 0; i < MAX_NUM_OF_CONTAINER_V4; i++) {
+		int j;
+		struct flash_header_v4 *fhdr = &header->fhdr[i];
+		struct boot_data_v4 *bdata = &header->boot_data[i];
+
+		printf("==> Container %d\n", i);
+		printf("tag: 0x%02x\n", fhdr->header.tag);
+		printf("length: %d\n", BE16(fhdr->header.length));
+		printf("version: 0x%02x\n", fhdr->header.version);
+		printf("dcd: 0x%016lx\n", fhdr->dcd_ptr);
+		printf("self: 0x%016lx\n", fhdr->self);
+
+		if (fhdr->header.tag != IVT_HEADER_TAG_V4) {
+			printf("\r\nerror, invalid header tag\r\n");
+			ret = -6;
+			goto free;
+		}
+
+		if (fhdr->header.version != IVT_VERSION_V4) {
+			printf("\r\nerror, invalid header version\r\n");
+			ret = -7;
+			goto free;
+		}
+
+
+		if (fhdr->dcd_ptr) {
+			struct dcd_v2 *dcd = (struct dcd_v2 *)(buf + (fhdr->dcd_ptr - fhdr->self));
+			printf("Download DCD from container %d\n", i);
+			do_initialize_ecc(dev, dev->dcd_addr, 0x1000);
+			ret = write_dcd(dev, dcd);
+			if (ret < 0)
+				goto free;
+		}
+
+		/* Load initial 8kB */
+		if (i == 0) {
+			printf("Load initial region\n");
+			write_file(dev, buf, sizeof(struct imx_header_v4),
+				   header->fhdr[i].self, FT_LOAD_ONLY);
+			header_address = header->fhdr[i].self;
+			do_initialize_ecc(dev, SCUViewAddr(0x30fe0000),
+					  0x20000);
+		}
+
+		/* Load images in container */
+		for (j = 0; j < bdata->num_images; j++) {
+			struct boot_img_v4 *img = &bdata->img[j];
+
+			printf("--> Image %d\n", j);
+			printf("offset: 0x%016lx\n", img->src);
+			printf("dest: 0x%016lx\n", img->dst);
+			printf("size: 0x%016x\n", img->size);
+			if (!img->size)
+				continue;
+
+			write_file(dev, buf + img->src - IVT_OFFSET_SD, img->size,
+				   SCUViewAddr(img->dst), FT_LOAD_ONLY);
+		}
+	}
+
+	do_skip_ddr(dev);
+
+	return jump(dev, header_address);
+free:
+	free(buf);
+
+	return ret;
+}
+
+
+static int do_download_v3(struct sdp_dev *dev, const struct sdp_work *curr, int verify)
+{
+	FILE* xfile;
+	unsigned char *buf = NULL;
+	unsigned int header_address;
+	int ret, cnt, i, fsize;
+	struct imx_header_v3 *header;
+
+	xfile = fopen(curr->filename, "rb" );
+	if (!xfile) {
+		printf("\r\nerror, can not open input file: %s\r\n", curr->filename);
+		return -5;
+	}
+
+	fsize = get_file_size(xfile);
+	buf = malloc(fsize);
+	if (!buf) {
+		printf("\r\nerror, out of memory\r\n");
+		ret = -2;
+		goto free;
+	}
+
+	cnt = fread(buf, 1 , fsize, xfile);
+	printf("loaded %d of %d\n", cnt, fsize);
+
+	header = (struct imx_header_v3 *)buf;
+
+	for (i = 0; i < MAX_NUM_OF_CONTAINER_V3; i++) {
+		int j;
+		struct flash_header_v3 *fhdr = &header->fhdr[i];
+		struct boot_data_v3 *bdata = &header->boot_data[i];
+
+
+		printf("==> Container %d\n", i);
+		printf("tag: 0x%02x\n", fhdr->header.tag);
+		printf("length: %d\n", BE16(fhdr->header.length));
+		printf("version: 0x%02x\n", fhdr->header.version);
+		printf("dcd: 0x%016lx\n", fhdr->dcd_ptr);
+		printf("self: 0x%016lx\n", fhdr->self);
+
+		if (fhdr->header.tag != IVT_HEADER_TAG_V3) {
+			printf("\r\nerror, invalid header tag\r\n");
+			ret = -6;
+			goto free;
+		}
+
+		if (fhdr->header.version != IVT_VERSION_V3) {
+			printf("\r\nerror, invalid header version\r\n");
+			ret = -7;
+			goto free;
+		}
+
+		if (fhdr->dcd_ptr) {
+			struct dcd_v2 *dcd = (struct dcd_v2 *)(buf + (fhdr->dcd_ptr - fhdr->self));
+			printf("Download DCD from container %d\n", i);
+			do_initialize_ecc(dev, dev->dcd_addr, 0x1000);
+			ret = write_dcd(dev, dcd);
+			if (ret < 0)
+				goto free;
+		}
+
+		/* Load initial 8kB */
+		if (i == 0) {
+			printf("Load initial region\n");
+			write_file(dev, buf, sizeof(struct imx_header_v3),
+				   header->fhdr[i].self, FT_LOAD_ONLY);
+			header_address = header->fhdr[i].self;
+			do_initialize_ecc(dev, SCUViewAddr(0x30fe0000),
+					  0x20000);
+		}
+
+		/* Load images in container */
+		for (j = 0; j < bdata->num_images; j++) {
+			struct boot_img_v3 *img = &bdata->img[j];
+
+			printf("--> Image %d\n", j);
+			printf("offset: 0x%016lx\n", img->src);
+			printf("dest: 0x%016lx\n", img->dst);
+			printf("size: 0x%016x\n", img->size);
+			if (!img->size)
+				continue;
+
+			write_file(dev, buf + img->src - IVT_OFFSET_SD, img->size,
+				   SCUViewAddr(img->dst), FT_LOAD_ONLY);
+		}
+	}
+
+	do_skip_ddr(dev);
+
+	return jump(dev, header_address);
+free:
+	free(buf);
+
+	return ret;
+}
+
 static int do_download(struct sdp_dev *dev, const struct sdp_work *curr, int verify)
 {
 	int ret;
@@ -1524,8 +1909,19 @@ int do_work(struct sdp_dev *p_id, struct sdp_work **work, int verify)
 		print_sdp_work(curr);
 		if (curr->mem)
 			perform_mem_work(p_id, curr->mem);
-		if (curr->filename[0])
-			err = do_download(p_id, curr, verify);
+		if (curr->filename[0]) {
+			switch (p_id->header_type) {
+			case HDR_MX8QX:
+				err = do_download_v4(p_id, curr, verify);
+				break;
+			case HDR_MX8QM:
+				err = do_download_v3(p_id, curr, verify);
+				break;
+			default:
+				err = do_download(p_id, curr, verify);
+				break;
+			}
+		}
 		if (err) {
 			fprintf(stderr, "do_download failed, err=%d\n", err);
 			do_status(p_id);

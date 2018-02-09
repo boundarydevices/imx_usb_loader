@@ -338,6 +338,14 @@ void parse_transfer_type(struct sdp_dev *usb, const char *filename, const char *
 		p += 12;
 		p = skip(p,',');
 		usb->header_type = HDR_UBOOT;
+	} else if (strncmp(p, "imx8qm", 6) == 0) {
+		p += 6;
+		p = skip(p,',');
+		usb->header_type = HDR_MX8QM;
+	} else if (strncmp(p, "imx8qx", 6) == 0) {
+		p += 6;
+		p = skip(p,',');
+		usb->header_type = HDR_MX8QX;
 	} else {
 		usb->header_type = HDR_MX53;
 	}
