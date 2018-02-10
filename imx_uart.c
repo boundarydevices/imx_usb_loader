@@ -310,7 +310,7 @@ int parse_opts(int argc, char * const *argv, char const **ttyfile,
 		case 'h':
 		case '?':
 			print_usage();
-			return -1;
+			return 1;
 		case 'd':
 			debugmode = 1; /* global extern */
 			break;
@@ -379,7 +379,9 @@ int main(int argc, char * const argv[])
 				&usertscts, &associate, &curr);
 
 	if (err < 0)
-		return err;
+		return EXIT_FAILURE;
+	else if (err > 0)
+		return EXIT_SUCCESS;
 
 	// Get machine specific configuration file..
 	if ((conffile = strrchr(conffilepath, PATH_SEPARATOR)) == NULL) {
