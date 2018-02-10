@@ -39,6 +39,7 @@
 
 #include "portable.h"
 #include "imx_sdp.h"
+#include "imx_loader.h"
 
 extern int debugmode;
 
@@ -298,13 +299,14 @@ int parse_opts(int argc, char * const *argv, char const **ttyfile,
 	static struct option long_options[] = {
 		{"help",	no_argument, 	0, 'h' },
 		{"verify",	no_argument, 	0, 'v' },
+		{"version",	no_argument, 	0, 'V' },
 		{"debugmode",	no_argument,	0, 'd' },
 		{"no-rtscts",	no_argument, 	0, 'n' },
 		{"no-association", no_argument, 0, 'N' },
 		{0,		0,		0, 0 },
 	};
 
-	while ((c = getopt_long(argc, argv, "+hdvnN", long_options, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "+hdvVnN", long_options, NULL)) != -1) {
 		switch (c)
 		{
 		case 'h':
@@ -323,6 +325,9 @@ int parse_opts(int argc, char * const *argv, char const **ttyfile,
 		case 'v':
 			*verify = 1;
 			break;
+		case 'V':
+			printf("imx_usb " IMX_LOADER_VERSION "\n");
+			return 1;
 		}
 	}
 

@@ -37,6 +37,7 @@
 
 #include "portable.h"
 #include "imx_sdp.h"
+#include "imx_loader.h"
 
 struct mach_id;
 struct mach_id {
@@ -361,13 +362,14 @@ int parse_opts(int argc, char * const *argv, char const **configdir,
 		{"help",	no_argument, 		0, 'h' },
 		{"debugmode",	no_argument, 		0, 'd' },
 		{"verify",	no_argument, 		0, 'v' },
+		{"version",	no_argument, 		0, 'V' },
 		{"configdir",	required_argument, 	0, 'c' },
 		{"bus",		required_argument,	0, 'b' },
 		{"device",	required_argument, 	0, 'D' },
 		{0,		0,			0, 0 },
 	};
 
-	while ((c = getopt_long(argc, argv, "+hdvc:b:D:", long_options, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "+hdvVc:b:D:", long_options, NULL)) != -1) {
 		switch (c)
 		{
 		case 'h':
@@ -380,6 +382,9 @@ int parse_opts(int argc, char * const *argv, char const **configdir,
 		case 'v':
 			*verify = 1;
 			break;
+		case 'V':
+			printf("imx_usb " IMX_LOADER_VERSION "\n");
+			return 1;
 		case 'c':
 			*configdir = optarg;
 			break;
