@@ -1500,16 +1500,10 @@ int load_file(struct sdp_dev *dev,
 	return transferSize;
 }
 
-#define MAX_IN_LENGTH 100 // max length for user input strings
-
-#define FT_APP	0xaa
-#define FT_CSF	0xcc
-#define FT_DCD	0xee
-#define FT_LOAD_ONLY	0x00
-int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
+int jump(struct sdp_dev *dev, unsigned int header_addr)
 {
-//							address, format, data count, data, type
-	//static unsigned char jump_command[] = {0x0b,0x0b, V(0),  0x00, V(0x00000000), V(0), 0x00};
+	int last_trans, err, retry = 0;
+	unsigned char tmp[64];
 	struct sdp_command jump_command = {
 		.cmd = SDP_JUMP_ADDRESS,
 		.addr = 0,
@@ -1518,6 +1512,40 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		.data = 0,
 		.rsvd = 0x00};
 
+	printf("jumping to 0x%08x\n", header_addr);
+	jump_command.addr = BE32(header_addr);
+	for (;;) {
+		err = dev->transfer(dev, 1, (unsigned char *)&jump_command, sizeof(jump_command), 0, &last_trans);
+		if (!err)
+			break;
+		printf("jump_command err=%i, last_trans=%i\n", err, last_trans);
+		if (retry > 5) {
+			return -4;
+		}
+		retry++;
+	}
+	memset(tmp, 0, sizeof(tmp));
+	err = dev->transfer(dev, 3, tmp, sizeof(tmp), 4, &last_trans);
+	if (err)
+		printf("j3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+
+	memset(tmp, 0, sizeof(tmp));
+	err = dev->transfer(dev, 4, tmp, sizeof(tmp), 4, &last_trans);
+	if (tmp[0] || tmp[1] || tmp[2] || tmp[3])
+		printf("j4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+
+	// Ignore error. Documentation says "This report is sent by device only in case of an error jumping to the given address..."
+	return 0;
+}
+
+#define MAX_IN_LENGTH 100 // max length for user input strings
+
+#define FT_APP	0xaa
+#define FT_CSF	0xcc
+#define FT_DCD	0xee
+#define FT_LOAD_ONLY	0x00
+int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
+{
 	int ret;
 	FILE* xfile;
 	unsigned char type;
@@ -1525,13 +1553,11 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 	unsigned header_offset;
 	int cnt;
 	unsigned file_base;
-	int last_trans, err;
 #define BUF_SIZE (1024*16)
 	unsigned char *buf = NULL;
 	unsigned char *verify_buffer = NULL;
 	unsigned verify_cnt;
 	unsigned char *p;
-	unsigned char tmp[64];
 	unsigned dladdr = 0;
 	unsigned max_length;
 	unsigned plugin = 0;
@@ -1539,7 +1565,6 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 
 	unsigned skip = 0;
 	unsigned transferSize=0;
-	int retry = 0;
 
 	print_sdp_work(curr);
 	xfile = fopen(curr->filename, "rb" );
@@ -1660,35 +1685,17 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 
 		}
 	}
-	if (dev->mode == MODE_HID) if (type == FT_APP) {
-		printf("jumping to 0x%08x\n", header_addr);
-		jump_command.addr = BE32(header_addr);
-		//Any command will initiate jump for mx51, jump address is ignored by mx51
-		retry = 0;
-		for (;;) {
-			err = dev->transfer(dev, 1, (unsigned char *)&jump_command, sizeof(jump_command), 0, &last_trans);
-			if (!err)
-				break;
-			printf("jump_command err=%i, last_trans=%i\n", err, last_trans);
-			if (retry > 5) {
-				return -4;
-			}
-			retry++;
-		}
-		memset(tmp, 0, sizeof(tmp));
-		err = dev->transfer(dev, 3, tmp, sizeof(tmp), 4, &last_trans);
-		if (err)
-			printf("j3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-		if (dev->mode == MODE_HID) {
-			memset(tmp, 0, sizeof(tmp));
-			err = dev->transfer(dev, 4, tmp, sizeof(tmp), 4, &last_trans);
-			if (tmp[0] || tmp[1] || tmp[2] || tmp[3])
-				printf("j4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
 
-			// Ignore error. Documentation says "This report is sent by device only in case of an error jumping to the given address..."
-			err = 0;
-		}
+	/*
+	 * Any command will initiate jump for bulk devices, no need to
+	 * explicitly send a jump command
+	 */
+	if (dev->mode == MODE_HID && type == FT_APP) {
+		ret = jump(dev, header_addr);
+		if (ret < 0)
+			goto cleanup;
 	}
+
 	ret = (fsize <= transferSize) ? 0 : -16;
 cleanup:
 	fclose(xfile);
