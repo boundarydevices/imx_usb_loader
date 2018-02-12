@@ -1617,9 +1617,13 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		goto cleanup;
 	}
 	file_base = header_addr - header_offset;
+
 	type = (curr->plug || curr->jump_mode) ? FT_APP : FT_LOAD_ONLY;
-	if (dev->mode == MODE_BULK) if (type == FT_APP) {
-		/* No jump command, dladdr should point to header */
+	if (dev->mode == MODE_BULK && type == FT_APP) {
+		/*
+		 * If there is no jump command boot ROM requires the download
+		 * to start at header address
+		 */
 		dladdr = header_addr;
 	}
 	if (file_base > dladdr) {
