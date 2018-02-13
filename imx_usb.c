@@ -461,6 +461,7 @@ int do_simulation_dev(char const *base_path, char const *conf_path,
 		struct mach_id *list, int verify, struct sdp_work *cmd_head,
 		char const *vidpid)
 {
+	int err;
 	struct mach_id *mach;
 	struct sdp_dev *p_id;
 	struct sdp_work *curr = NULL;
@@ -495,7 +496,11 @@ int do_simulation_dev(char const *base_path, char const *conf_path,
 		mach->nextbatch = NULL;
 	}
 
-	return DoIRomDownload(p_id, curr, verify);
+	err = DoIRomDownload(p_id, curr, verify);
+
+	do_simulation_cleanup();
+
+	return err;
 }
 
 int do_autodetect_dev(char const *base_path, char const *conf_path,
