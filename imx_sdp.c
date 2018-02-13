@@ -788,7 +788,7 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 		transferSize += last_trans;
 	}
 
-	printf("\r\n<<<%i, %i bytes>>>\r\n", length, transferSize);
+	printf("\n<<<%i, %i bytes>>>\n", length, transferSize);
 	if (dev->mode == MODE_HID) {
 		err = dev->transfer(dev, 3, tmp, sizeof(tmp), 4, &last_trans);
 		if (err)
@@ -1481,7 +1481,7 @@ int load_file(struct sdp_dev *dev,
 		cnt = fread(buf, 1 , get_min(cnt, (int)buf_cnt), xfile);
 		p = buf;
 	}
-	printf("\r\n<<<%i, %i bytes>>>\r\n", fsize, transferSize);
+	printf("\n<<<%i, %i bytes>>>\n", fsize, transferSize);
 	if (dev->mode == MODE_HID) {
 		err = dev->transfer(dev, 3, tmp, sizeof(tmp), 4, &last_trans);
 		if (err)
@@ -1569,12 +1569,12 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 	print_sdp_work(curr);
 	xfile = fopen(curr->filename, "rb" );
 	if (!xfile) {
-		printf("\r\nerror, can not open input file: %s\r\n", curr->filename);
+		printf("\nerror, can not open input file: %s\n", curr->filename);
 		return -5;
 	}
 	buf = malloc(BUF_SIZE);
 	if (!buf) {
-		printf("\r\nerror, out of memory\r\n");
+		printf("\nerror, out of memory\n");
 		ret = -2;
 		goto cleanup;
 	}
@@ -1584,7 +1584,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 	cnt = fread(buf, 1 , BUF_SIZE, xfile);
 
 	if (cnt < 0x20) {
-		printf("\r\nerror, file: %s is too small\r\n", curr->filename);
+		printf("\nerror, file: %s is too small\n", curr->filename);
 		ret = -2;
 		goto cleanup;
 	}
@@ -1612,7 +1612,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		goto cleanup;
 	}
 	if (!dladdr) {
-		printf("\nunknown load address\r\n");
+		printf("\nunknown load address\n");
 		ret = -3;
 		goto cleanup;
 	}
@@ -1657,7 +1657,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		verify_buffer = malloc(cnt);
 		verify_cnt = cnt;
 		if (!verify_buffer) {
-			printf("\r\nerror, out of memory\r\n");
+			printf("\nerror, out of memory\n");
 			ret = -2;
 			goto cleanup;
 		}
@@ -1667,7 +1667,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 			verify = 2;
 		}
 	}
-	printf("\nloading binary file(%s) to %08x, skip=%x, fsize=%x type=%x\r\n", curr->filename, dladdr, skip, fsize, type);
+	printf("\nloading binary file(%s) to %08x, skip=%x, fsize=%x type=%x\n", curr->filename, dladdr, skip, fsize, type);
 	ret = load_file(dev, p, cnt, buf, BUF_SIZE,
 			dladdr, fsize, type, xfile);
 	if (ret < 0)
