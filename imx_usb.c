@@ -327,8 +327,34 @@ int transfer_bulk(struct sdp_dev *dev, int report, unsigned char *p, unsigned in
 	return err;
 }
 
-#define ARRAY_SIZE(w) sizeof(w)/sizeof(w[0])
+int transfer_simulation(struct sdp_dev *dev, int report, unsigned char *p, unsigned int cnt,
+		unsigned int expected, int* last_trans)
+{
+	int err = 0;
+	if (cnt > dev->max_transfer)
+		cnt = dev->max_transfer;
 
+	printf("report=%i, cnt=%d\n", report, cnt);
+	switch (report) {
+	case 1:
+	case 2:
+		dump_bytes(p, cnt, 0);
+		break;
+	case 3:
+	case 4:
+		memset(p, 0, cnt);
+		break;
+	}
+
+	err = do_simulation(dev, report, p, cnt, expected, last_trans);
+
+	/* Simulation can always transfer everything */
+	*last_trans = cnt;
+
+	return err;
+}
+
+#define ARRAY_SIZE(w) sizeof(w)/sizeof(w[0])
 void print_usage(void)
 {
 	printf("Usage: imx_usb [OPTIONS...] [JOBS...]\n"
@@ -344,6 +370,7 @@ void print_usage(void)
 		"			directory.\n"
 		"   -b --bus=NUM		Filter bus number.\n"
 		"   -D --device=NUM	Filter device address.\n"
+		"   -S --sim=VID:PID	Simulate a device of VID:PID\n"
 		"\n"
 		"And where [JOBS...] are\n"
 		"   FILE [-lLOADADDR] [-sSIZE] ...\n"
@@ -428,6 +455,47 @@ int do_work(struct sdp_dev *p_id, struct sdp_work **work, int verify)
 err_release_interface:
 	libusb_release_interface(h, 0);
 	return err;
+}
+
+int do_simulation_dev(char const *base_path, char const *conf_path,
+		struct mach_id *list, int verify, struct sdp_work *cmd_head,
+		char const *vidpid)
+{
+	struct mach_id *mach;
+	struct sdp_dev *p_id;
+	struct sdp_work *curr = NULL;
+	char const *conf;
+	unsigned short vid, pid;
+
+	sscanf(vidpid, "%hx:%hx", &vid, &pid);
+	printf("Simulating with vid=0x%04hx pid=0x%04hx\n", vid, pid);
+
+	mach = imx_device(vid, pid, list);
+	if (!mach) {
+		fprintf(stderr, "Could not find device vid=0x%04x pid=0x%04x\n",
+			vid, pid);
+		return -1;
+	}
+
+	// Get machine specific configuration file..
+	conf = conf_file_name(mach->file_name, base_path, conf_path);
+	if (conf == NULL)
+		return -1;
+
+	p_id = parse_conf(conf);
+	if (!p_id)
+		return -1;
+
+	p_id->transfer = &transfer_simulation;
+	curr = p_id->work;
+
+	// Prefer work from command line, disable batch mode...
+	if (cmd_head) {
+		curr = cmd_head;
+		mach->nextbatch = NULL;
+	}
+
+	return DoIRomDownload(p_id, curr, verify);
 }
 
 int do_autodetect_dev(char const *base_path, char const *conf_path,
@@ -548,6 +616,7 @@ static const struct option long_options[] = {
 	{"configdir",	required_argument, 	0, 'c' },
 	{"bus",		required_argument,	0, 'b' },
 	{"device",	required_argument, 	0, 'D' },
+	{"sim",		required_argument, 	0, 'S' },
 	{0,		0,			0, 0 },
 };
 
@@ -559,10 +628,11 @@ int main(int argc, char * const argv[])
 	char const *conf;
 	char const *base_path = get_base_path(argv[0]);
 	char const *conf_path = get_global_conf_path();
+	char const *sim_vidpid = NULL;
 	int bus = -1;
 	int address = -1;
 
-	while ((c = getopt_long(argc, argv, "+hdvVc:b:D:", long_options, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "+hdvVc:b:D:S:", long_options, NULL)) != -1) {
 		switch (c)
 		{
 		case 'h':
@@ -587,6 +657,9 @@ int main(int argc, char * const argv[])
 		case 'D':
 			address = atoi(optarg);
 			break;
+		case 'S':
+			sim_vidpid = optarg;
+			break;
 		}
 	}
 
@@ -604,7 +677,12 @@ int main(int argc, char * const argv[])
 	if (!list)
 		return EXIT_FAILURE;
 
-	err = do_autodetect_dev(base_path, conf_path, list, verify, cmd_head, bus, address);
+	if (sim_vidpid)
+		err = do_simulation_dev(base_path, conf_path, list, verify,
+					cmd_head, sim_vidpid);
+	else
+		err = do_autodetect_dev(base_path, conf_path, list, verify,
+					cmd_head, bus, address);
 	if (err < 0)
 		return EXIT_FAILURE;
 
