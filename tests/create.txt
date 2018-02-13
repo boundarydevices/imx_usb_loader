@@ -1,0 +1,6 @@
+=> IMX image with plugin
+mkimage -n plugin.cfg -T imximage -a -e 0x87800000 -d image.bin test-plugin.imx
+=> IMX image without plugin
+mkimage -n noplugin.cfg -T imximage -e 0x87800000 -d image.bin test.imx
+=> IMX image with DCD
+mkimage -n dcd.cfg -T imximage -e 0x87800000 -d image.bin test-dcd.imx
