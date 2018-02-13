@@ -1708,3 +1708,36 @@ cleanup:
 	return ret;
 }
 
+int do_simulation(struct sdp_dev *dev, int report, unsigned char *p, unsigned int cnt,
+		unsigned int expected, int* last_trans)
+{
+	static struct sdp_command lastcmd;
+
+	switch (report) {
+	case 1:
+		/* Copy command */
+		lastcmd = *((struct sdp_command *)p);
+		printf("cmd %04x\n", lastcmd.cmd);
+		break;
+	case 2:
+		/* Data phase, ignore */
+		break;
+	case 3:
+		break;
+	case 4:
+		/* Return sensible status */
+		switch (lastcmd.cmd) {
+		case SDP_WRITE_FILE:
+			*((unsigned int *)p) = BE32(0x88888888UL);
+			break;
+		case SDP_WRITE_DCD:
+			*((unsigned int *)p) = BE32(0x128a8a12UL);
+			break;
+		}
+		break;
+	default:
+		break;
+	}
+
+	return 0;
+}
