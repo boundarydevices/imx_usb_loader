@@ -1768,6 +1768,8 @@ int do_simulation(struct sdp_dev *dev, int report, unsigned char *p, unsigned in
 		cur_mem->offset += cnt;
 		break;
 	case 3:
+		/* Simulate security configuration open */
+		*((unsigned int *)p) = BE32(0x56787856);
 		break;
 	case 4:
 		/* Return sensible status */
