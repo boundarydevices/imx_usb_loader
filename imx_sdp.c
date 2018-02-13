@@ -1708,30 +1708,79 @@ cleanup:
 	return ret;
 }
 
+struct sim_memory *head;
+struct sim_memory {
+	struct sim_memory *next;
+	unsigned int addr;
+	unsigned int len;
+	unsigned char *buf;
+	int offset;
+};
+
 int do_simulation(struct sdp_dev *dev, int report, unsigned char *p, unsigned int cnt,
 		unsigned int expected, int* last_trans)
 {
-	static struct sdp_command lastcmd;
+	static struct sdp_command cur_cmd;
+	static struct sim_memory *cur_mem;
+	unsigned int offset;
 
 	switch (report) {
 	case 1:
 		/* Copy command */
-		lastcmd = *((struct sdp_command *)p);
-		printf("cmd %04x\n", lastcmd.cmd);
+		cur_cmd = *((struct sdp_command *)p);
+		printf("cmd: %04x\n", cur_cmd.cmd);
+		switch (cur_cmd.cmd) {
+		case SDP_WRITE_FILE:
+		case SDP_WRITE_DCD:
+			if (!head) {
+				cur_mem = head = malloc(sizeof(*cur_mem));
+			} else {
+				cur_mem = head;
+				while (cur_mem->next)
+					cur_mem = cur_mem->next;
+
+				cur_mem->next = malloc(sizeof(*cur_mem));
+				cur_mem = cur_mem->next;
+			}
+
+			cur_mem->next = NULL;
+			cur_mem->addr = BE32(cur_cmd.addr);
+			cur_mem->len = BE32(cur_cmd.cnt);
+			cur_mem->buf = malloc(cur_mem->len);
+			cur_mem->offset = 0;
+			break;
+		case SDP_READ_REG:
+			cur_mem = head;
+			while (cur_mem) {
+				if (cur_mem->addr <= BE32(cur_cmd.addr) &&
+				    cur_mem->addr + cur_mem->len > BE32(cur_cmd.addr)) {
+					break;
+				}
+
+				cur_mem = cur_mem->next;
+			}
+			break;
+		}
 		break;
 	case 2:
 		/* Data phase, ignore */
+		memcpy(cur_mem->buf + cur_mem->offset, p, cnt);
+		cur_mem->offset += cnt;
 		break;
 	case 3:
 		break;
 	case 4:
 		/* Return sensible status */
-		switch (lastcmd.cmd) {
+		switch (cur_cmd.cmd) {
 		case SDP_WRITE_FILE:
 			*((unsigned int *)p) = BE32(0x88888888UL);
 			break;
 		case SDP_WRITE_DCD:
 			*((unsigned int *)p) = BE32(0x128a8a12UL);
+			break;
+		case SDP_READ_REG:
+			offset = BE32(cur_cmd.addr) - cur_mem->addr;
+			memcpy(p, cur_mem->buf + offset, cnt);
 			break;
 		}
 		break;
@@ -1740,4 +1789,15 @@ int do_simulation(struct sdp_dev *dev, int report, unsigned char *p, unsigned in
 	}
 
 	return 0;
+}
+
+void do_simulation_cleanup(void)
+{
+	struct sim_memory *cur_mem = head;
+
+	while (cur_mem) {
+		struct sim_memory *free_mem = cur_mem;
+		cur_mem = cur_mem->next;
+		free(free_mem);
+	}
 }

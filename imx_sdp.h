@@ -124,4 +124,5 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify);
 
 int do_simulation(struct sdp_dev *dev, int report, unsigned char *p, unsigned int cnt,
 		unsigned int expected, int* last_trans);
+void do_simulation_cleanup(void);
 #endif /* __IMX_SDP_H__ */
