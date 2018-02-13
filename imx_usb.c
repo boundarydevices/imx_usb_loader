@@ -353,62 +353,6 @@ void print_usage(void)
 		"is being used.\n");
 }
 
-int parse_opts(int argc, char * const *argv, char const **configdir,
-		int *verify, struct sdp_work **cmd_head, int *bus, int *address)
-{
-	int c;
-
-	static struct option long_options[] = {
-		{"help",	no_argument, 		0, 'h' },
-		{"debugmode",	no_argument, 		0, 'd' },
-		{"verify",	no_argument, 		0, 'v' },
-		{"version",	no_argument, 		0, 'V' },
-		{"configdir",	required_argument, 	0, 'c' },
-		{"bus",		required_argument,	0, 'b' },
-		{"device",	required_argument, 	0, 'D' },
-		{0,		0,			0, 0 },
-	};
-
-	while ((c = getopt_long(argc, argv, "+hdvVc:b:D:", long_options, NULL)) != -1) {
-		switch (c)
-		{
-		case 'h':
-		case '?':
-			print_usage();
-			return 1;
-		case 'd':
-			debugmode = 1; /* global extern */
-			break;
-		case 'v':
-			*verify = 1;
-			break;
-		case 'V':
-			printf("imx_usb " IMX_LOADER_VERSION "\n");
-			return 1;
-		case 'c':
-			*configdir = optarg;
-			break;
-		case 'b':
-			*bus = atoi(optarg);
-			break;
-		case 'D':
-			*address = atoi(optarg);
-			break;
-		}
-	}
-
-	if (optind < argc) {
-		// Parse optional job arguments...
-		*cmd_head = parse_cmd_args(argc - optind, &argv[optind]);
-	}
-    else
-    {
-        *cmd_head = NULL;
-    }
-
-	return 0;
-}
-
 int do_work(struct sdp_dev *p_id, struct sdp_work **work, int verify)
 {
 	struct sdp_work *curr = *work;
@@ -596,9 +540,20 @@ out_deinit_usb:
 	return err;
 }
 
+static const struct option long_options[] = {
+	{"help",	no_argument, 		0, 'h' },
+	{"debugmode",	no_argument, 		0, 'd' },
+	{"verify",	no_argument, 		0, 'v' },
+	{"version",	no_argument, 		0, 'V' },
+	{"configdir",	required_argument, 	0, 'c' },
+	{"bus",		required_argument,	0, 'b' },
+	{"device",	required_argument, 	0, 'D' },
+	{0,		0,			0, 0 },
+};
+
 int main(int argc, char * const argv[])
 {
-	int err;
+	int err, c;
 	int verify = 0;
 	struct sdp_work *cmd_head = NULL;
 	char const *conf;
@@ -607,11 +562,38 @@ int main(int argc, char * const argv[])
 	int bus = -1;
 	int address = -1;
 
-	err = parse_opts(argc, argv, &conf_path, &verify, &cmd_head, &bus, &address);
-	if (err < 0)
-		return EXIT_FAILURE;
-	else if (err > 0)
-		return EXIT_SUCCESS;
+	while ((c = getopt_long(argc, argv, "+hdvVc:b:D:", long_options, NULL)) != -1) {
+		switch (c)
+		{
+		case 'h':
+		case '?':
+			print_usage();
+			return EXIT_SUCCESS;
+		case 'd':
+			debugmode = 1; /* global extern */
+			break;
+		case 'v':
+			verify = 1;
+			break;
+		case 'V':
+			printf("imx_usb " IMX_LOADER_VERSION "\n");
+			return EXIT_SUCCESS;
+		case 'c':
+			conf_path = optarg;
+			break;
+		case 'b':
+			bus = atoi(optarg);
+			break;
+		case 'D':
+			address = atoi(optarg);
+			break;
+		}
+	}
+
+	if (optind < argc) {
+		// Parse optional job arguments...
+		cmd_head = parse_cmd_args(argc - optind, &argv[optind]);
+	}
 
 	// Get list of machines...
 	conf = conf_file_name("imx_usb.conf", base_path, conf_path);
