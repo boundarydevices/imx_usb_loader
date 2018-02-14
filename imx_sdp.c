@@ -585,6 +585,25 @@ static int do_response(struct sdp_dev *dev, int report, unsigned int *result,
 	return err;
 }
 
+static int do_command(struct sdp_dev *dev, struct sdp_command *cmd, int retry)
+{
+	int last_trans, err = -4;
+
+	dbg_printf("sending command cmd=%04x\n", cmd->cmd);
+	while (retry) {
+		err = dev->transfer(dev, 1, (unsigned char *)cmd,
+				    sizeof(*cmd), 0, &last_trans);
+		if (err || debugmode)
+			printf("%s err=%i, last_trans=%i\n", __func__, err, last_trans);
+		if (!err)
+			return 0;
+
+		retry--;
+	}
+
+	return err;
+}
+
 static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, unsigned cnt)
 {
 	struct sdp_command read_reg_command = {
@@ -602,16 +621,9 @@ static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, 
 	unsigned int sec;
 
 	dbg_printf("%s: addr=%08x, cnt=%08x\n", __func__, addr, cnt);
-	for (;;) {
-		err = dev->transfer(dev, 1, (unsigned char *)&read_reg_command, sizeof(read_reg_command), 0, &last_trans);
-		if (!err)
-			break;
-		printf("read_reg_command err=%i, last_trans=%i\n", err, last_trans);
-		if (retry > 5) {
-			return -4;
-		}
-		retry++;
-	}
+	err = do_command(dev, &read_reg_command, 5);
+	if (err)
+		return err;
 
 	err = do_response(dev, 3, &sec, false);
 	if (err)
@@ -656,29 +668,20 @@ static int write_memory(struct sdp_dev *dev, unsigned addr, unsigned val)
 		.cnt = BE32(0x00000004),
 		.data = BE32(val),
 		.rsvd = 0x00};
-	int retry = 0;
 	int last_trans;
 	int err = 0;
-	unsigned char tmp[64];
+	unsigned char tmp[64] = { 0 };
 	unsigned int sec;
 
 	dbg_printf("%s: addr=%08x, val=%08x\n", __func__, addr, val);
-	for (;;) {
-		err = dev->transfer(dev, 1, (unsigned char *)&write_reg_command, sizeof(write_reg_command), 0, &last_trans);
-		if (!err)
-			break;
-		printf("write_reg_command err=%i, last_trans=%i\n", err, last_trans);
-		if (retry > 5) {
-			return -4;
-		}
-		retry++;
-	}
+	err = do_command(dev, &write_reg_command, 5);
+	if (err)
+		return err;
 
 	err = do_response(dev, 3, &sec, false);
 	if (err)
 		return err;
 
-	memset(tmp, 0, sizeof(tmp));
 	err = dev->transfer(dev, 4, tmp, sizeof(tmp), 4, &last_trans);
 	dbg_printf("report 4, err=%i, last_trans=%i  %02x %02x %02x %02x  %02x %02x %02x %02x\n",
 			err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3],
@@ -769,16 +772,9 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 	}
 
 	printf("loading DCD table @%#x\n", dev->dcd_addr);
-	for (;;) {
-		err = dev->transfer(dev, 1, (unsigned char *)&dl_command, sizeof(dl_command), 0, &last_trans);
-		if (!err)
-			break;
-		printf("dl_command err=%i, last_trans=%i\n", err, last_trans);
-		if (retry > 5)
-			return -4;
-		retry++;
-	}
-	retry = 0;
+	err = do_command(dev, &dl_command, 5);
+	if (err)
+		return err;
 
 	while (length > 0) {
 		err = dev->transfer(dev, 2, dcd, get_min(length, max), 0, &last_trans);
@@ -1331,21 +1327,11 @@ int do_status(struct sdp_dev *dev)
 		.cnt = 0,
 		.data = 0,
 		.rsvd = 0};
-
-	int last_trans;
 	unsigned int hab_security, status;
 	int retry = 0;
 	int err;
 
-	while (retry < 5) {
-		err = dev->transfer(dev, 1, (unsigned char *)&status_command, sizeof(status_command), 0, &last_trans);
-		dbg_printf("report 1, wrote %i bytes, err=%i\n", last_trans, err);
-		if (!err)
-			break;
-
-		retry++;
-	}
-
+	err = do_command(dev, &status_command, 5);
 	if (err)
 		return err;
 
@@ -1443,20 +1429,11 @@ int load_file(struct sdp_dev *dev,
 		.data = 0,
 		.rsvd = type};
 	int last_trans, err;
-	int retry = 0;
 	unsigned transferSize=0;
 	int max = dev->max_transfer;
 
-	for (;;) {
-		err = dev->transfer(dev, 1, (unsigned char *)&dl_command, sizeof(dl_command), 0, &last_trans);
-		if (!err)
-			break;
-		printf("dl_command err=%i, last_trans=%i\n", err, last_trans);
-		if (retry > 5)
-			return -4;
-		retry++;
-	}
-	retry = 0;
+	do_command(dev, &dl_command, 5);
+
 	if (dev->mode == MODE_BULK) {
 		unsigned int sec;
 		err = do_response(dev, 3, &sec, false);
@@ -1535,10 +1512,10 @@ int load_file(struct sdp_dev *dev,
 
 int jump(struct sdp_dev *dev, unsigned int header_addr)
 {
-	int last_trans, err, retry = 0;
+	int err;
 	struct sdp_command jump_command = {
 		.cmd = SDP_JUMP_ADDRESS,
-		.addr = 0,
+		.addr = BE32(header_addr),
 		.format = 0,
 		.cnt = 0,
 		.data = 0,
@@ -1546,18 +1523,9 @@ int jump(struct sdp_dev *dev, unsigned int header_addr)
 	unsigned int sec, status;
 
 	printf("jumping to 0x%08x\n", header_addr);
-	jump_command.addr = BE32(header_addr);
-	for (;;) {
-		err = dev->transfer(dev, 1, (unsigned char *)&jump_command, sizeof(jump_command), 0, &last_trans);
-		if (!err)
-			break;
-		printf("jump_command err=%i, last_trans=%i\n", err, last_trans);
-		if (retry > 5) {
-			return -4;
-		}
-		retry++;
-	}
-
+	err = do_command(dev, &jump_command, 5);
+	if (err)
+		return err;
 
 	err = do_response(dev, 3, &sec, false);
 	if (err)
