@@ -1333,38 +1333,43 @@ int do_status(struct sdp_dev *dev)
 		.rsvd = 0};
 
 	int last_trans;
-	unsigned int *hab_security;
-	unsigned char tmp[64];
+	unsigned int hab_security, status;
 	int retry = 0;
 	int err;
-	int cnt = 64;
 
-	for (;;) {
+	while (retry < 5) {
 		err = dev->transfer(dev, 1, (unsigned char *)&status_command, sizeof(status_command), 0, &last_trans);
 		dbg_printf("report 1, wrote %i bytes, err=%i\n", last_trans, err);
-		memset(tmp, 0, sizeof(tmp));
-
-
-		err = dev->transfer(dev, 3, tmp, cnt, 4, &last_trans);
-		dbg_printf("report 3, read %i bytes, err=%i\n", last_trans, err);
-		dbg_printf("read=%02x %02x %02x %02x\n", tmp[0], tmp[1], tmp[2], tmp[3]);
 		if (!err)
 			break;
+
 		retry++;
-		if (retry > 5)
-			break;
 	}
 
-	hab_security = (unsigned int *)tmp;
-	printf("HAB security state: %s (0x%08x)\n", *hab_security == HAB_SECMODE_PROD ?
-			"production mode" : "development mode", *hab_security);
+	if (err)
+		return err;
+
+	while (retry < 5) {
+		err = do_response(dev, 3, &hab_security);
+		if (!err)
+			break;
+
+		retry++;
+	}
+
+	if (err)
+		return err;
+
+	printf("HAB security state: %s (0x%08x)\n", hab_security == HAB_SECMODE_PROD ?
+			"production mode" : "development mode", hab_security);
 
 	if (dev->mode == MODE_HID) {
-		err = dev->transfer(dev, 4, tmp, cnt, 4, &last_trans);
-		dbg_printf("report 4, read %i bytes, err=%i\n", last_trans, err);
-		dbg_printf("read=%02x %02x %02x %02x\n", tmp[0], tmp[1], tmp[2], tmp[3]);
+		err = do_response(dev, 4, &status);
+		if (err)
+			return err;
 	}
-	return err;
+
+	return 0;
 }
 
 int process_header(struct sdp_dev *dev, struct sdp_work *curr,
