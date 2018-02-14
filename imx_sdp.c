@@ -560,6 +560,29 @@ struct old_app_header {
 	uint32_t app_dest_ptr;
 };
 
+static int do_response(struct sdp_dev *dev, int report, unsigned int *result)
+{
+	unsigned char tmp[64] =  { 0 };
+	int last_trans, err;
+
+	err = dev->transfer(dev, report, tmp, sizeof(tmp), 4, &last_trans);
+	if (err || debugmode)
+		printf("report %d in err=%i, last_trans=%i  %02x %02x %02x %02x\n",
+			report, err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+
+	/* At least 4 bytes required for a valid result */
+	if (last_trans < 4)
+		return -1;
+
+	/*
+	 * Most results are symetric, but likely are meant to be big endian
+	 * as everything else is...
+	 */
+	*result = BE32(*((unsigned int*)tmp));
+
+	return err;
+}
+
 static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, unsigned cnt)
 {
 	struct sdp_command read_reg_command = {
@@ -705,12 +728,10 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 	unsigned char* dcd, *dcd_end;
 	unsigned char* file_end = file_start + cnt;
 
-	unsigned int *status;
 	int last_trans, err;
 	int retry = 0;
 	unsigned transferSize=0;
 	unsigned int max = dev->max_transfer;
-	unsigned char tmp[64];
 
 	if (!hdr->dcd_ptr) {
 		printf("No dcd table, barker=%x\n", hdr->barker);
@@ -790,17 +811,21 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 
 	printf("\n<<<%i, %i bytes>>>\n", length, transferSize);
 	if (dev->mode == MODE_HID) {
-		err = dev->transfer(dev, 3, tmp, sizeof(tmp), 4, &last_trans);
+		unsigned int sec, status;
+
+		err = do_response(dev, 3, &sec);
 		if (err)
-			printf("report 3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-		err = dev->transfer(dev, 4, tmp, sizeof(tmp), 4, &last_trans);
+			return err;
+
+		err = do_response(dev, 4, &status);
 		if (err)
-			printf("report 4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-		status = (unsigned int*)tmp;
-		if (*status == 0x128a8a12UL)
-			printf("succeeded (status 0x%08x)\n", *status);
+			return err;
+
+		if (status == 0x128a8a12UL)
+			printf("succeeded");
 		else
-			printf("failed (status 0x%08x)\n", *status);
+			printf("failed");
+		printf(" (security 0x%08x, status 0x%08x)\n", sec, status);
 	} else {
 		do_status(dev);
 	}
@@ -1412,7 +1437,6 @@ int load_file(struct sdp_dev *dev,
 		.cnt = BE32(fsize),
 		.data = 0,
 		.rsvd = type};
-	unsigned int *status;
 	int last_trans, err;
 	int retry = 0;
 	unsigned transferSize=0;
@@ -1483,17 +1507,21 @@ int load_file(struct sdp_dev *dev,
 	}
 	printf("\n<<<%i, %i bytes>>>\n", fsize, transferSize);
 	if (dev->mode == MODE_HID) {
-		err = dev->transfer(dev, 3, tmp, sizeof(tmp), 4, &last_trans);
+		unsigned int sec, status;
+
+		err = do_response(dev, 3, &sec);
 		if (err)
-			printf("report 3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-		err = dev->transfer(dev, 4, tmp, sizeof(tmp), 4, &last_trans);
+			return err;
+
+		err = do_response(dev, 4, &status);
 		if (err)
-			printf("report 4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-		status = (unsigned int*)tmp;
-		if (*status == 0x88888888UL)
-			printf("succeeded (status 0x%08x)\n", *status);
+			return err;
+
+		if (status == 0x88888888UL)
+			printf("succeeded");
 		else
-			printf("failed (status 0x%08x)\n", *status);
+			printf("failed");
+		printf(" (security 0x%08x, status 0x%08x)\n", sec, status);
 	} else {
 		do_status(dev);
 	}
