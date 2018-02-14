@@ -599,7 +599,9 @@ static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, 
 	int err;
 	int rem;
 	unsigned char tmp[64];
+	unsigned int sec;
 
+	dbg_printf("%s: addr=%08x, cnt=%08x\n", __func__, addr, cnt);
 	for (;;) {
 		err = dev->transfer(dev, 1, (unsigned char *)&read_reg_command, sizeof(read_reg_command), 0, &last_trans);
 		if (!err)
@@ -610,11 +612,11 @@ static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, 
 		}
 		retry++;
 	}
-	err = dev->transfer(dev, 3, tmp, 4, 4, &last_trans);
-	if (err) {
-		printf("r3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+
+	err = do_response(dev, 3, &sec, false);
+	if (err)
 		return err;
-	}
+
 	rem = cnt;
 	retry = 0;
 	while (rem) {
@@ -658,6 +660,7 @@ static int write_memory(struct sdp_dev *dev, unsigned addr, unsigned val)
 	int last_trans;
 	int err = 0;
 	unsigned char tmp[64];
+	unsigned int sec;
 
 	dbg_printf("%s: addr=%08x, val=%08x\n", __func__, addr, val);
 	for (;;) {
@@ -671,15 +674,10 @@ static int write_memory(struct sdp_dev *dev, unsigned addr, unsigned val)
 		retry++;
 	}
 
-	memset(tmp, 0, sizeof(tmp));
-	err = dev->transfer(dev, 3, tmp, sizeof(tmp), 4, &last_trans);
-	dbg_printf("report 3, err=%i, last_trans=%i  %02x %02x %02x %02x  %02x %02x %02x %02x\n",
-			err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3],
-			tmp[4], tmp[5], tmp[6], tmp[7]);
-	if (err) {
-		printf("w3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
-		printf("addr=0x%08x, val=0x%08x\n", addr, val);
-	}
+	err = do_response(dev, 3, &sec, false);
+	if (err)
+		return err;
+
 	memset(tmp, 0, sizeof(tmp));
 	err = dev->transfer(dev, 4, tmp, sizeof(tmp), 4, &last_trans);
 	dbg_printf("report 4, err=%i, last_trans=%i  %02x %02x %02x %02x  %02x %02x %02x %02x\n",
