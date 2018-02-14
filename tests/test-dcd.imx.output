@@ -40,7 +40,7 @@ report=2, cnt=16
 <<<0, 16 bytes>>>
 report=3, cnt=64
 report=4, cnt=64
-succeeded (status 0x128a8a12)
+succeeded (security 0x56787856, status 0x128a8a12)
 
 loading binary file(test-dcd.imx) to 877ff400, skip=0, fsize=1c00 type=aa
 report=1, cnt=16
@@ -505,7 +505,7 @@ report=2, cnt=1024
 <<<7168, 7168 bytes>>>
 report=3, cnt=64
 report=4, cnt=64
-succeeded (status 0x88888888)
+succeeded (security 0x56787856, status 0x88888888)
 report=1, cnt=16
 00000000: 01 01 87 7f  f4 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
