@@ -716,6 +716,35 @@ void perform_mem_work(struct sdp_dev *dev, struct mem_work *mem)
 	}
 }
 
+static int do_data_transfer(struct sdp_dev *dev, unsigned char *buf, int len,
+			int *last_trans)
+{
+	int err;
+	int retry = 10;
+	int max = dev->max_transfer;
+
+	while (retry) {
+		err = dev->transfer(dev, 2, buf, get_min(len, max), 0, last_trans);
+		if (!err)
+			return 0;
+
+		printf("report 2 out err=%i, last_trans=%i cnt=0x%x max=0x%x retry=%i\n",
+			err, *last_trans, len, max, retry);
+
+		if (max >= 16)
+			max >>= 1;
+		else
+			max <<= 1;
+
+		/* Wait a few ms before retrying transfer */
+		msleep(10);
+		retry--;
+	}
+
+	printf("Giving up\n");
+	return err;
+}
+
 static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char *file_start, unsigned cnt)
 {
 	struct sdp_command dl_command = {
@@ -732,9 +761,7 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 	unsigned char* file_end = file_start + cnt;
 
 	int last_trans, err;
-	int retry = 0;
 	unsigned transferSize=0;
-	unsigned int max = dev->max_transfer;
 
 	if (!hdr->dcd_ptr) {
 		printf("No dcd table, barker=%x\n", hdr->barker);
@@ -777,24 +804,9 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 		return err;
 
 	while (length > 0) {
-		err = dev->transfer(dev, 2, dcd, get_min(length, max), 0, &last_trans);
-		if (err) {
-			printf("out err=%i, last_trans=%i cnt=0x%x max=0x%x transferSize=0x%X retry=%i\n", err, last_trans, length, max, transferSize, retry);
-			if (retry >= 10) {
-				printf("Giving up\n");
-				return err;
-			}
-			if (max >= 16)
-				max >>= 1;
-			else
-				max <<= 1;
-			/* Wait a few ms before retrying transfer */
-			msleep(10);
-			retry++;
-			continue;
-		}
-		max = dev->max_transfer;
-		retry = 0;
+		err = do_data_transfer(dev, dcd, length, &last_trans);
+		if (err)
+			return err;
 
 		if (!last_trans) {
 			printf("Nothing last_trans, err=%i\n", err);
@@ -1430,7 +1442,6 @@ int load_file(struct sdp_dev *dev,
 		.rsvd = type};
 	int last_trans, err;
 	unsigned transferSize=0;
-	int max = dev->max_transfer;
 
 	do_command(dev, &dl_command, 5);
 
@@ -1442,30 +1453,14 @@ int load_file(struct sdp_dev *dev,
 	}
 
 	while (1) {
-		int retry;
 		if (cnt > (int)(fsize-transferSize)) cnt = (fsize-transferSize);
 		if (cnt <= 0)
 			break;
-		retry = 0;
 		while (cnt) {
-			err = dev->transfer(dev, 2, p, get_min(cnt, max), 0, &last_trans);
-//			printf("err=%i, last_trans=0x%x, cnt=0x%x, max=0x%x\n", err, last_trans, cnt, max);
-			if (err) {
-				printf("out err=%i, last_trans=%i cnt=0x%x max=0x%x transferSize=0x%X retry=%i\n", err, last_trans, cnt, max, transferSize, retry);
-				if (retry >= 10) {
-					printf("Giving up\n");
-					return err;
-				}
-				if (max >= 16)
-					max >>= 1;
-				else
-					max <<= 1;
-				msleep(10);
-				retry++;
-				continue;
-			}
-			max = dev->max_transfer;
-			retry = 0;
+			err = do_data_transfer(dev, p, cnt, &last_trans);
+			if (err)
+				return err;
+
 			if (cnt < last_trans) {
 				dbg_printf("note: last_trans=0x%x, attempted only=0%x\n", last_trans, cnt);
 				cnt = last_trans;
