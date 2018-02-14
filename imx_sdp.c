@@ -1446,7 +1446,6 @@ int load_file(struct sdp_dev *dev,
 	int retry = 0;
 	unsigned transferSize=0;
 	int max = dev->max_transfer;
-	unsigned char tmp[64];
 
 	for (;;) {
 		err = dev->transfer(dev, 1, (unsigned char *)&dl_command, sizeof(dl_command), 0, &last_trans);
@@ -1459,9 +1458,10 @@ int load_file(struct sdp_dev *dev,
 	}
 	retry = 0;
 	if (dev->mode == MODE_BULK) {
-		err = dev->transfer(dev, 3, tmp, sizeof(tmp), 4, &last_trans);
+		unsigned int sec;
+		err = do_response(dev, 3, &sec, false);
 		if (err)
-			printf("in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+			return err;
 	}
 
 	while (1) {
