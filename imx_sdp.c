@@ -26,6 +26,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #include "portable.h"
 #include "imx_sdp.h"
@@ -560,13 +561,14 @@ struct old_app_header {
 	uint32_t app_dest_ptr;
 };
 
-static int do_response(struct sdp_dev *dev, int report, unsigned int *result)
+static int do_response(struct sdp_dev *dev, int report, unsigned int *result,
+		bool silent)
 {
 	unsigned char tmp[64] =  { 0 };
 	int last_trans, err;
 
 	err = dev->transfer(dev, report, tmp, sizeof(tmp), 4, &last_trans);
-	if (err || debugmode)
+	if ((!silent && err) || debugmode)
 		printf("report %d in err=%i, last_trans=%i  %02x %02x %02x %02x\n",
 			report, err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
 
@@ -813,11 +815,11 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 	if (dev->mode == MODE_HID) {
 		unsigned int sec, status;
 
-		err = do_response(dev, 3, &sec);
+		err = do_response(dev, 3, &sec, false);
 		if (err)
 			return err;
 
-		err = do_response(dev, 4, &status);
+		err = do_response(dev, 4, &status, false);
 		if (err)
 			return err;
 
@@ -1350,7 +1352,7 @@ int do_status(struct sdp_dev *dev)
 		return err;
 
 	while (retry < 5) {
-		err = do_response(dev, 3, &hab_security);
+		err = do_response(dev, 3, &hab_security, false);
 		if (!err)
 			break;
 
@@ -1364,7 +1366,7 @@ int do_status(struct sdp_dev *dev)
 			"production mode" : "development mode", hab_security);
 
 	if (dev->mode == MODE_HID) {
-		err = do_response(dev, 4, &status);
+		err = do_response(dev, 4, &status, false);
 		if (err)
 			return err;
 	}
@@ -1514,11 +1516,11 @@ int load_file(struct sdp_dev *dev,
 	if (dev->mode == MODE_HID) {
 		unsigned int sec, status;
 
-		err = do_response(dev, 3, &sec);
+		err = do_response(dev, 3, &sec, false);
 		if (err)
 			return err;
 
-		err = do_response(dev, 4, &status);
+		err = do_response(dev, 4, &status, false);
 		if (err)
 			return err;
 
@@ -1536,7 +1538,6 @@ int load_file(struct sdp_dev *dev,
 int jump(struct sdp_dev *dev, unsigned int header_addr)
 {
 	int last_trans, err, retry = 0;
-	unsigned char tmp[64];
 	struct sdp_command jump_command = {
 		.cmd = SDP_JUMP_ADDRESS,
 		.addr = 0,
@@ -1544,6 +1545,7 @@ int jump(struct sdp_dev *dev, unsigned int header_addr)
 		.cnt = 0,
 		.data = 0,
 		.rsvd = 0x00};
+	unsigned int sec, status;
 
 	printf("jumping to 0x%08x\n", header_addr);
 	jump_command.addr = BE32(header_addr);
@@ -1557,17 +1559,24 @@ int jump(struct sdp_dev *dev, unsigned int header_addr)
 		}
 		retry++;
 	}
-	memset(tmp, 0, sizeof(tmp));
-	err = dev->transfer(dev, 3, tmp, sizeof(tmp), 4, &last_trans);
+
+
+	err = do_response(dev, 3, &sec, false);
 	if (err)
-		printf("j3 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+		return err;
 
-	memset(tmp, 0, sizeof(tmp));
-	err = dev->transfer(dev, 4, tmp, sizeof(tmp), 4, &last_trans);
-	if (tmp[0] || tmp[1] || tmp[2] || tmp[3])
-		printf("j4 in err=%i, last_trans=%i  %02x %02x %02x %02x\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
+	err = do_response(dev, 4, &status, true);
+	/*
+	 * Documentation says: "This report is sent by device only in case of
+	 * an error jumping to the given address..."
+	 * If Report 4 fails, this is a good sign
+	 * If Report 4 responds, there has been something gone wrong...
+	 */
+	if (!err) {
+		printf("failed (security 0x%08x, status 0x%08x)\n", sec, status);
+		return err;
+	}
 
-	// Ignore error. Documentation says "This report is sent by device only in case of an error jumping to the given address..."
 	return 0;
 }
 
