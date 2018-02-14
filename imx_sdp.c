@@ -1817,6 +1817,9 @@ int do_simulation(struct sdp_dev *dev, int report, unsigned char *p, unsigned in
 			offset = BE32(cur_cmd.addr) - cur_mem->addr;
 			memcpy(p, cur_mem->buf + offset, cnt);
 			break;
+		case SDP_JUMP_ADDRESS:
+			/* A successful jump rerturns not on Report 4 */
+			return -7;
 		}
 		break;
 	default:

@@ -348,8 +348,11 @@ int transfer_simulation(struct sdp_dev *dev, int report, unsigned char *p, unsig
 
 	err = do_simulation(dev, report, p, cnt, expected, last_trans);
 
-	/* Simulation can always transfer everything */
-	*last_trans = cnt;
+	/* On error, do not transmit anything */
+	if (err)
+		*last_trans = 0;
+	else
+		*last_trans = cnt;
 
 	return err;
 }
