@@ -499,562 +499,562 @@ succeeded (security 0x56787856, status 0x88888888)
 report=1, cnt=16
 00000000: 01 01 87 7f  f4 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  f4 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  f4 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  f4 c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  f5 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  f5 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  f5 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  f5 c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  f6 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  f6 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  f6 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  f6 c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  f7 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  f7 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  f7 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  f7 c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  f8 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  f8 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  f8 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  f8 c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  f9 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  f9 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  f9 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  f9 c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  fa 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  fa 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  fa 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  fa c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  fb 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  fb 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  fb 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  fb c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  fc 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  fc 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  fc 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  fc c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  fd 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  fd 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  fd 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  fd c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  fe 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  fe 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  fe 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  fe c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  ff 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  ff 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  ff 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 7f  ff c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  00 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  00 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  00 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  00 c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  01 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  01 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  01 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  01 c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  02 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  02 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  02 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  02 c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  03 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  03 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  03 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  03 c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  04 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  04 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  04 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  04 c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  05 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  05 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  05 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  05 c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  06 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  06 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  06 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  06 c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  07 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  07 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  07 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  07 c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  08 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  08 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  08 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  08 c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  09 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  09 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  09 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  09 c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0a 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0a 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0a 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0a c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0b 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0b 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0b 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0b c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0c 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0c 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0c 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0c c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0d 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0d 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0d 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0d c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0e 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0e 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0e 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0e c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0f 00 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0f 40 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0f 80 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 report=1, cnt=16
 00000000: 01 01 87 80  0f c0 20 00  00 00 40 00  00 00 00 00
 cmd: 0101
-report=3, cnt=4
+report=3, cnt=64
 report=4, cnt=64
 Verify success
 jumping to 0x877ff400
