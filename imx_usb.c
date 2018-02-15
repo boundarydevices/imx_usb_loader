@@ -483,7 +483,8 @@ int do_simulation_dev(char const *base_path, char const *conf_path,
 		mach->nextbatch = NULL;
 	}
 
-	err = DoIRomDownload(p_id, curr, verify);
+	err = do_work(p_id, &curr, verify);
+	dbg_printf("do_work finished with err=%d, curr=%p\n", err, curr);
 
 	do_simulation_cleanup();
 
