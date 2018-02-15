@@ -386,26 +386,12 @@ void print_usage(void)
 int do_work(struct sdp_dev *p_id, struct sdp_work **work, int verify)
 {
 	struct sdp_work *curr = *work;
-	int config = 0;
 	int err = 0;
-	libusb_device_handle *h = p_id->priv;
 
-	libusb_get_configuration(h, &config);
-	dbg_printf("bConfigurationValue = 0x%x\n", config);
-
-	if (libusb_kernel_driver_active(h, 0))
-		 libusb_detach_kernel_driver(h, 0);
-
-	err = libusb_claim_interface(h, 0);
-	if (err) {
-		fprintf(stderr, "claim interface failed\n");
-		return err;
-	}
-	printf("Interface 0 claimed\n");
 	err = do_status(p_id);
 	if (err) {
 		fprintf(stderr, "status failed\n");
-		goto err_release_interface;
+		return err;
 	}
 
 	while (curr) {
@@ -455,8 +441,6 @@ int do_work(struct sdp_dev *p_id, struct sdp_work **work, int verify)
 
 	*work = curr;
 
-err_release_interface:
-	libusb_release_interface(h, 0);
 	return err;
 }
 
@@ -520,6 +504,7 @@ int do_autodetect_dev(char const *base_path, char const *conf_path,
 	libusb_device_handle *h = NULL;
 	char const *conf;
 	int retry;
+	int config = 0;
 
 	err = libusb_init(NULL);
 	if (err < 0)
@@ -597,9 +582,23 @@ int do_autodetect_dev(char const *base_path, char const *conf_path,
 		// USB private pointer is libusb device handle...
 		p_id->priv = h;
 
+		libusb_get_configuration(h, &config);
+		dbg_printf("bConfigurationValue = 0x%x\n", config);
+
+		if (libusb_kernel_driver_active(h, 0))
+			 libusb_detach_kernel_driver(h, 0);
+
+		err = libusb_claim_interface(h, 0);
+		if (err) {
+			fprintf(stderr, "claim interface failed\n");
+			break;
+		}
+		printf("Interface 0 claimed\n");
+
 		err = do_work(p_id, &curr, verify);
 		dbg_printf("do_work finished with err=%d, curr=%p\n", err, curr);
 
+		libusb_release_interface(h, 0);
 		libusb_close(h);
 
 		if (err)
