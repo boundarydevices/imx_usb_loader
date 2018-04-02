@@ -46,4 +46,10 @@ uninstall:
 clean:
 	rm -f imx_usb imx_uart imx_usb.o imx_uart.o imx_sdp.o
 
-.PHONY: all clean install
+tests: imx_usb
+	$(MAKE) -C tests/ tests
+
+regen: imx_usb
+	$(MAKE) -C tests/ regen
+
+.PHONY: all clean install tests

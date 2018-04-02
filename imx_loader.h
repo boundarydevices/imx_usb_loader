@@ -19,6 +19,6 @@
 #ifndef __IMX_LOADER_H__
 #define __IMX_LOADER_H__
 
-#define IMX_LOADER_VERSION	"0.1"
+#define IMX_LOADER_VERSION	"0.2pre"
 
 #endif /* __IMX_LOADER_H__ */
