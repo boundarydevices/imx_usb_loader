@@ -46,6 +46,7 @@ int debugmode = 0;
 #define get_min(a, b) (((a) < (b)) ? (a) : (b))
 
 struct load_desc {
+	FILE* xfile;
 	unsigned char *buf_start;
 	unsigned cnt;
 	unsigned dladdr;
@@ -1557,7 +1558,6 @@ int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 {
 	int ret;
-	FILE* xfile;
 	unsigned char type;
 	unsigned fsize;
 	unsigned header_offset;
@@ -1571,8 +1571,8 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 	unsigned transferSize=0;
 
 	print_sdp_work(curr);
-	xfile = fopen(curr->filename, "rb" );
-	if (!xfile) {
+	ld.xfile = fopen(curr->filename, "rb" );
+	if (!ld.xfile) {
 		printf("\nerror, can not open input file: %s\n", curr->filename);
 		return -5;
 	}
@@ -1582,10 +1582,10 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		ret = -2;
 		goto cleanup;
 	}
-	fsize = get_file_size(xfile);
+	fsize = get_file_size(ld.xfile);
 	if (curr->load_size && (fsize > curr->load_size))
 		fsize = curr->load_size;
-	ld.cnt = fread(ld.buf_start, 1 , BUF_SIZE, xfile);
+	ld.cnt = fread(ld.buf_start, 1 , BUF_SIZE, ld.xfile);
 
 	if (ld.cnt < 0x20) {
 		printf("\nerror, file: %s is too small\n", curr->filename);
@@ -1640,11 +1640,11 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 			ret = -4;
 			goto cleanup;
 		}
-		fseek(xfile, skip, SEEK_SET);
+		fseek(ld.xfile, skip, SEEK_SET);
 		ld.cnt -= skip;
 		fsize -= skip;
 		skip = 0;
-		ld.cnt = fread(ld.buf_start, 1 , BUF_SIZE, xfile);
+		ld.cnt = fread(ld.buf_start, 1 , BUF_SIZE, ld.xfile);
 	}
 	p = &ld.buf_start[skip];
 	ld.cnt -= skip;
@@ -1672,13 +1672,13 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 	}
 	printf("\nloading binary file(%s) to %08x, skip=%x, fsize=%x type=%x\n", curr->filename, ld.dladdr, skip, fsize, type);
 	ret = load_file(dev, p, ld.cnt, ld.buf_start, BUF_SIZE,
-			ld.dladdr, fsize, type, xfile);
+			ld.dladdr, fsize, type, ld.xfile);
 	if (ret < 0)
 		goto cleanup;
 	transferSize = ret;
 
 	if (verify) {
-		ret = verify_memory(dev, xfile, skip, ld.dladdr, fsize, verify_buffer, verify_cnt);
+		ret = verify_memory(dev, ld.xfile, skip, ld.dladdr, fsize, verify_buffer, verify_cnt);
 		if (ret < 0)
 			goto cleanup;
 		if (verify == 2) {
@@ -1686,7 +1686,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 				verify_cnt = 64;
 			ret = load_file(dev, verify_buffer, verify_cnt,
 					ld.buf_start, BUF_SIZE, ld.dladdr, verify_cnt,
-					FT_APP, xfile);
+					FT_APP, ld.xfile);
 			if (ret < 0)
 				goto cleanup;
 
@@ -1705,7 +1705,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 
 	ret = (fsize <= transferSize) ? 0 : -16;
 cleanup:
-	fclose(xfile);
+	fclose(ld.xfile);
 	free(verify_buffer);
 	free(ld.buf_start);
 	return ret;
