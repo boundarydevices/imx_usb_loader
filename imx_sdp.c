@@ -1192,6 +1192,118 @@ int verify_memory(struct sdp_dev *dev, FILE *xfile, unsigned offset,
 	return mismatch ? -1 : 0;
 }
 
+int load_file(struct sdp_dev *dev,
+		unsigned char *p, int cnt, unsigned char *buf, unsigned buf_cnt,
+		unsigned dladdr, unsigned fsize, unsigned char type, FILE* xfile)
+{
+	struct sdp_command dl_command = {
+		.cmd = SDP_WRITE_FILE,
+		.addr = BE32(dladdr),
+		.format = 0,
+		.cnt = BE32(fsize),
+		.data = 0,
+		.rsvd = type};
+	int last_trans, err;
+	unsigned transferSize=0;
+
+	do_command(dev, &dl_command, 5);
+
+	if (dev->mode == MODE_BULK) {
+		unsigned int sec;
+		err = do_response(dev, 3, &sec, false);
+		if (err)
+			return err;
+	}
+
+	while (1) {
+		if (cnt > (int)(fsize-transferSize)) cnt = (fsize-transferSize);
+		if (cnt <= 0)
+			break;
+		while (cnt) {
+			err = do_data_transfer(dev, p, cnt, &last_trans);
+			if (err)
+				return err;
+
+			if (cnt < last_trans) {
+				dbg_printf("note: last_trans=0x%x, attempted only=0%x\n", last_trans, cnt);
+				cnt = last_trans;
+			}
+			if (!last_trans) {
+				printf("Nothing last_trans, err=%i\n", err);
+				break;
+			}
+			p += last_trans;
+			cnt -= last_trans;
+			transferSize += last_trans;
+		}
+
+		if (!last_trans) break;
+		if (feof(xfile)) break;
+		cnt = fsize - transferSize;
+		if (cnt <= 0)
+			break;
+		cnt = fread(buf, 1 , get_min(cnt, (int)buf_cnt), xfile);
+		p = buf;
+	}
+	printf("\n<<<%i, %i bytes>>>\n", fsize, transferSize);
+	if (dev->mode == MODE_HID) {
+		unsigned int sec, status;
+
+		err = do_response(dev, 3, &sec, false);
+		if (err)
+			return err;
+
+		err = do_response(dev, 4, &status, false);
+		if (err)
+			return err;
+
+		if (status == 0x88888888UL)
+			printf("succeeded");
+		else
+			printf("failed");
+		printf(" (security 0x%08x, status 0x%08x)\n", sec, status);
+	} else {
+		do_status(dev);
+	}
+	return transferSize;
+}
+
+int jump(struct sdp_dev *dev, unsigned int header_addr)
+{
+	int err;
+	struct sdp_command jump_command = {
+		.cmd = SDP_JUMP_ADDRESS,
+		.addr = BE32(header_addr),
+		.format = 0,
+		.cnt = 0,
+		.data = 0,
+		.rsvd = 0x00};
+	unsigned int sec, status;
+
+	printf("jumping to 0x%08x\n", header_addr);
+	err = do_command(dev, &jump_command, 5);
+	if (err)
+		return err;
+
+	err = do_response(dev, 3, &sec, false);
+	if (err)
+		return err;
+
+	err = do_response(dev, 4, &status, true);
+	/*
+	 * Documentation says: "This report is sent by device only in case of
+	 * an error jumping to the given address..."
+	 * If Report 4 fails, this is a good sign
+	 * If Report 4 responds, there has been something gone wrong...
+	 */
+	if (!err) {
+		printf("failed (security 0x%08x, status 0x%08x)\n", sec, status);
+		return err;
+	}
+
+	return 0;
+}
+
 int is_header(struct sdp_dev *dev, unsigned char *p)
 {
 	switch (dev->header_type) {
@@ -1427,118 +1539,6 @@ int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 		p += header_inc;
 	}
 	return header_offset;
-}
-
-int load_file(struct sdp_dev *dev,
-		unsigned char *p, int cnt, unsigned char *buf, unsigned buf_cnt,
-		unsigned dladdr, unsigned fsize, unsigned char type, FILE* xfile)
-{
-	struct sdp_command dl_command = {
-		.cmd = SDP_WRITE_FILE,
-		.addr = BE32(dladdr),
-		.format = 0,
-		.cnt = BE32(fsize),
-		.data = 0,
-		.rsvd = type};
-	int last_trans, err;
-	unsigned transferSize=0;
-
-	do_command(dev, &dl_command, 5);
-
-	if (dev->mode == MODE_BULK) {
-		unsigned int sec;
-		err = do_response(dev, 3, &sec, false);
-		if (err)
-			return err;
-	}
-
-	while (1) {
-		if (cnt > (int)(fsize-transferSize)) cnt = (fsize-transferSize);
-		if (cnt <= 0)
-			break;
-		while (cnt) {
-			err = do_data_transfer(dev, p, cnt, &last_trans);
-			if (err)
-				return err;
-
-			if (cnt < last_trans) {
-				dbg_printf("note: last_trans=0x%x, attempted only=0%x\n", last_trans, cnt);
-				cnt = last_trans;
-			}
-			if (!last_trans) {
-				printf("Nothing last_trans, err=%i\n", err);
-				break;
-			}
-			p += last_trans;
-			cnt -= last_trans;
-			transferSize += last_trans;
-		}
-
-		if (!last_trans) break;
-		if (feof(xfile)) break;
-		cnt = fsize - transferSize;
-		if (cnt <= 0)
-			break;
-		cnt = fread(buf, 1 , get_min(cnt, (int)buf_cnt), xfile);
-		p = buf;
-	}
-	printf("\n<<<%i, %i bytes>>>\n", fsize, transferSize);
-	if (dev->mode == MODE_HID) {
-		unsigned int sec, status;
-
-		err = do_response(dev, 3, &sec, false);
-		if (err)
-			return err;
-
-		err = do_response(dev, 4, &status, false);
-		if (err)
-			return err;
-
-		if (status == 0x88888888UL)
-			printf("succeeded");
-		else
-			printf("failed");
-		printf(" (security 0x%08x, status 0x%08x)\n", sec, status);
-	} else {
-		do_status(dev);
-	}
-	return transferSize;
-}
-
-int jump(struct sdp_dev *dev, unsigned int header_addr)
-{
-	int err;
-	struct sdp_command jump_command = {
-		.cmd = SDP_JUMP_ADDRESS,
-		.addr = BE32(header_addr),
-		.format = 0,
-		.cnt = 0,
-		.data = 0,
-		.rsvd = 0x00};
-	unsigned int sec, status;
-
-	printf("jumping to 0x%08x\n", header_addr);
-	err = do_command(dev, &jump_command, 5);
-	if (err)
-		return err;
-
-	err = do_response(dev, 3, &sec, false);
-	if (err)
-		return err;
-
-	err = do_response(dev, 4, &status, true);
-	/*
-	 * Documentation says: "This report is sent by device only in case of
-	 * an error jumping to the given address..."
-	 * If Report 4 fails, this is a good sign
-	 * If Report 4 responds, there has been something gone wrong...
-	 */
-	if (!err) {
-		printf("failed (security 0x%08x, status 0x%08x)\n", sec, status);
-		return err;
-	}
-
-	return 0;
 }
 
 #define MAX_IN_LENGTH 100 // max length for user input strings
