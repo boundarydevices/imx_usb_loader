@@ -48,6 +48,7 @@ int debugmode = 0;
 struct load_desc {
 	FILE* xfile;
 	unsigned char *buf_start;
+	unsigned buf_size;
 	unsigned buf_cnt;
 	unsigned dladdr;
 	unsigned max_length;
@@ -1562,7 +1563,6 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 	unsigned fsize;
 	unsigned header_offset;
 	unsigned file_base;
-#define BUF_SIZE (1024*16)
 	unsigned char *verify_buffer = NULL;
 	unsigned verify_cnt;
 	unsigned char *p;
@@ -1577,7 +1577,8 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		printf("\nerror, can not open input file: %s\n", curr->filename);
 		return -5;
 	}
-	ld.buf_start = malloc(BUF_SIZE);
+	ld.buf_size = (1024*16);
+	ld.buf_start = malloc(ld.buf_size);
 	if (!ld.buf_start) {
 		printf("\nerror, out of memory\n");
 		ret = -2;
@@ -1586,7 +1587,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 	fsize = get_file_size(ld.xfile);
 	if (curr->load_size && (fsize > curr->load_size))
 		fsize = curr->load_size;
-	ld.buf_cnt = fread(ld.buf_start, 1 , BUF_SIZE, ld.xfile);
+	ld.buf_cnt = fread(ld.buf_start, 1, ld.buf_size, ld.xfile);
 
 	if (ld.buf_cnt < 0x20) {
 		printf("\nerror, file: %s is too small\n", curr->filename);
@@ -1644,7 +1645,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		fseek(ld.xfile, skip, SEEK_SET);
 		fsize -= skip;
 		skip = 0;
-		ld.buf_cnt = fread(ld.buf_start, 1 , BUF_SIZE, ld.xfile);
+		ld.buf_cnt = fread(ld.buf_start, 1, ld.buf_size, ld.xfile);
 	}
 	p = &ld.buf_start[skip];
 	cnt = ld.buf_cnt -= skip;
@@ -1671,7 +1672,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		}
 	}
 	printf("\nloading binary file(%s) to %08x, skip=%x, fsize=%x type=%x\n", curr->filename, ld.dladdr, skip, fsize, type);
-	ret = load_file(dev, p, cnt, ld.buf_start, BUF_SIZE,
+	ret = load_file(dev, p, cnt, ld.buf_start, ld.buf_size,
 			ld.dladdr, fsize, type, ld.xfile);
 	if (ret < 0)
 		goto cleanup;
@@ -1685,7 +1686,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 			if (verify_cnt > 64)
 				verify_cnt = 64;
 			ret = load_file(dev, verify_buffer, verify_cnt,
-					ld.buf_start, BUF_SIZE, ld.dladdr, verify_cnt,
+					ld.buf_start, ld.buf_size, ld.dladdr, verify_cnt,
 					FT_APP, ld.xfile);
 			if (ret < 0)
 				goto cleanup;
