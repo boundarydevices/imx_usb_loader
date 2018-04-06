@@ -46,6 +46,8 @@ int debugmode = 0;
 #define get_min(a, b) (((a) < (b)) ? (a) : (b))
 
 struct load_desc {
+	unsigned char *buf_start;
+	unsigned cnt;
 	unsigned dladdr;
 	unsigned max_length;
 	unsigned plugin;
@@ -1401,17 +1403,16 @@ int clear_dcd_ptr(struct sdp_dev *dev, unsigned char *p, unsigned char *file_sta
 #endif
 
 int get_dl_start(struct sdp_dev *dev, unsigned char *p,
-	unsigned char *file_start, unsigned cnt, struct load_desc *ld,
-	unsigned int clear_boot_data)
+	struct load_desc *ld, unsigned int clear_boot_data)
 {
-	unsigned char* file_end = file_start + cnt;
+	unsigned char* file_end = ld->buf_start + ld->cnt;
 	switch (dev->header_type) {
 	case HDR_MX51:
 	{
 		struct old_app_header *ohdr = (struct old_app_header *)p;
 		unsigned char *dcd_end;
 		unsigned char* dcd;
-		int err = get_dcd_range_old(ohdr, file_start, cnt, &dcd, &dcd_end);
+		int err = get_dcd_range_old(ohdr, ld->buf_start, ld->cnt, &dcd, &dcd_end);
 		ld->dladdr = ohdr->app_dest_ptr;
 		ld->header_addr = ohdr->dcd_ptr_ptr - offsetof(struct old_app_header, dcd_ptr);
 		ld->plugin = 0;
@@ -1427,7 +1428,7 @@ int get_dl_start(struct sdp_dev *dev, unsigned char *p,
 		ld->dladdr = hdr->self_ptr;
 		ld->header_addr = hdr->self_ptr;
 		bd = hdr->boot_data_ptr + cvt_dest_to_src;
-		if ((bd < file_start) || ((bd + 4) > file_end)) {
+		if ((bd < ld->buf_start) || ((bd + 4) > file_end)) {
 			printf("bad boot_data_ptr %08x\n", hdr->boot_data_ptr);
 			return -1;
 		}
@@ -1492,26 +1493,25 @@ int do_status(struct sdp_dev *dev)
 }
 
 int process_header(struct sdp_dev *dev, struct sdp_work *curr,
-		unsigned char *buf, int cnt, struct load_desc *ld)
+		struct load_desc *ld)
 {
 	int ret;
 	unsigned header_max = 0x800;
 	unsigned header_inc = 0x400;
 	unsigned header_offset = 0;
 	int header_cnt = 0;
-	unsigned char *p = buf;
+	unsigned char *p = ld->buf_start;
 
 	while (header_offset < header_max) {
 //		printf("header_offset=%x\n", header_offset);
 		if (is_header(dev, p)) {
-			ret = get_dl_start(dev, p, buf, cnt, ld,
-					curr->clear_boot_data);
+			ret = get_dl_start(dev, p, ld, curr->clear_boot_data);
 			if (ret < 0) {
 				printf("!!get_dl_start returned %i\n", ret);
 				return ret;
 			}
 			if (curr->dcd) {
-				ret = perform_dcd(dev, p, buf, cnt);
+				ret = perform_dcd(dev, p, ld->buf_start, ld->cnt);
 				if (ret < 0) {
 					printf("!!perform_dcd returned %i\n", ret);
 					return ret;
@@ -1523,7 +1523,7 @@ int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 				}
 			}
 			if (curr->clear_dcd) {
-				ret = clear_dcd_ptr(dev, p, buf, cnt);
+				ret = clear_dcd_ptr(dev, p, ld->buf_start, ld->cnt);
 				if (ret < 0) {
 					printf("!!clear_dcd returned %i\n", ret);
 					return ret;
@@ -1532,8 +1532,8 @@ int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 			if (ld->plugin && (!curr->plug) && (!header_cnt)) {
 				header_cnt++;
 				header_max = header_offset + ld->max_length + 0x400;
-				if (header_max > (unsigned)(cnt - 32))
-					header_max = (unsigned)(cnt - 32);
+				if (header_max > (unsigned)(ld->cnt - 32))
+					header_max = (unsigned)(ld->cnt - 32);
 				printf("header_max=%x\n", header_max);
 				header_inc = 4;
 			} else {
@@ -1561,10 +1561,8 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 	unsigned char type;
 	unsigned fsize;
 	unsigned header_offset;
-	int cnt;
 	unsigned file_base;
 #define BUF_SIZE (1024*16)
-	unsigned char *buf = NULL;
 	unsigned char *verify_buffer = NULL;
 	unsigned verify_cnt;
 	unsigned char *p;
@@ -1578,8 +1576,8 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		printf("\nerror, can not open input file: %s\n", curr->filename);
 		return -5;
 	}
-	buf = malloc(BUF_SIZE);
-	if (!buf) {
+	ld.buf_start = malloc(BUF_SIZE);
+	if (!ld.buf_start) {
 		printf("\nerror, out of memory\n");
 		ret = -2;
 		goto cleanup;
@@ -1587,16 +1585,16 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 	fsize = get_file_size(xfile);
 	if (curr->load_size && (fsize > curr->load_size))
 		fsize = curr->load_size;
-	cnt = fread(buf, 1 , BUF_SIZE, xfile);
+	ld.cnt = fread(ld.buf_start, 1 , BUF_SIZE, xfile);
 
-	if (cnt < 0x20) {
+	if (ld.cnt < 0x20) {
 		printf("\nerror, file: %s is too small\n", curr->filename);
 		ret = -2;
 		goto cleanup;
 	}
 	ld.max_length = fsize;
 	if (curr->dcd || curr->clear_dcd || curr->plug || (curr->jump_mode >= J_HEADER)) {
-		ret = process_header(dev, curr, buf, cnt, &ld);
+		ret = process_header(dev, curr, &ld);
 		if (ret < 0)
 			goto cleanup;
 		header_offset = ret;
@@ -1636,20 +1634,20 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		ld.dladdr = file_base;
 	}
 	skip = ld.dladdr - file_base;
-	if ((int)skip > cnt) {
+	if ((int)skip > ld.cnt) {
 		if (skip > fsize) {
 			printf("skip(0x%08x) > fsize(0x%08x) file_base=0x%08x, header_offset=0x%x\n", skip, fsize, file_base, header_offset);
 			ret = -4;
 			goto cleanup;
 		}
 		fseek(xfile, skip, SEEK_SET);
-		cnt -= skip;
+		ld.cnt -= skip;
 		fsize -= skip;
 		skip = 0;
-		cnt = fread(buf, 1 , BUF_SIZE, xfile);
+		ld.cnt = fread(ld.buf_start, 1 , BUF_SIZE, xfile);
 	}
-	p = &buf[skip];
-	cnt -= skip;
+	p = &ld.buf_start[skip];
+	ld.cnt -= skip;
 	fsize -= skip;
 	if (fsize > ld.max_length)
 		fsize = ld.max_length;
@@ -1659,21 +1657,21 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		 * because some of the file is changed
 		 * before download
 		 */
-		verify_buffer = malloc(cnt);
-		verify_cnt = cnt;
+		verify_buffer = malloc(ld.cnt);
+		verify_cnt = ld.cnt;
 		if (!verify_buffer) {
 			printf("\nerror, out of memory\n");
 			ret = -2;
 			goto cleanup;
 		}
-		memcpy(verify_buffer, p, cnt);
+		memcpy(verify_buffer, p, ld.cnt);
 		if ((type == FT_APP) && (dev->mode != MODE_HID)) {
 			type = FT_LOAD_ONLY;
 			verify = 2;
 		}
 	}
 	printf("\nloading binary file(%s) to %08x, skip=%x, fsize=%x type=%x\n", curr->filename, ld.dladdr, skip, fsize, type);
-	ret = load_file(dev, p, cnt, buf, BUF_SIZE,
+	ret = load_file(dev, p, ld.cnt, ld.buf_start, BUF_SIZE,
 			ld.dladdr, fsize, type, xfile);
 	if (ret < 0)
 		goto cleanup;
@@ -1687,7 +1685,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 			if (verify_cnt > 64)
 				verify_cnt = 64;
 			ret = load_file(dev, verify_buffer, verify_cnt,
-					buf, BUF_SIZE, ld.dladdr, verify_cnt,
+					ld.buf_start, BUF_SIZE, ld.dladdr, verify_cnt,
 					FT_APP, xfile);
 			if (ret < 0)
 				goto cleanup;
@@ -1709,7 +1707,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 cleanup:
 	fclose(xfile);
 	free(verify_buffer);
-	free(buf);
+	free(ld.buf_start);
 	return ret;
 }
 
