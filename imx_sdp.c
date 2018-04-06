@@ -45,6 +45,13 @@ int debugmode = 0;
 
 #define get_min(a, b) (((a) < (b)) ? (a) : (b))
 
+struct load_desc {
+	unsigned dladdr;
+	unsigned max_length;
+	unsigned plugin;
+	unsigned header_addr;
+};
+
 int get_val(const char** pp, int base)
 {
 	int val = 0;
@@ -1393,7 +1400,9 @@ int clear_dcd_ptr(struct sdp_dev *dev, unsigned char *p, unsigned char *file_sta
 //#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
 #endif
 
-int get_dl_start(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start, unsigned cnt, unsigned *dladdr, unsigned *max_length, unsigned *plugin, unsigned *header_addr, unsigned int clear_boot_data)
+int get_dl_start(struct sdp_dev *dev, unsigned char *p,
+	unsigned char *file_start, unsigned cnt, struct load_desc *ld,
+	unsigned int clear_boot_data)
 {
 	unsigned char* file_end = file_start + cnt;
 	switch (dev->header_type) {
@@ -1403,11 +1412,11 @@ int get_dl_start(struct sdp_dev *dev, unsigned char *p, unsigned char *file_star
 		unsigned char *dcd_end;
 		unsigned char* dcd;
 		int err = get_dcd_range_old(ohdr, file_start, cnt, &dcd, &dcd_end);
-		*dladdr = ohdr->app_dest_ptr;
-		*header_addr = ohdr->dcd_ptr_ptr - offsetof(struct old_app_header, dcd_ptr);
-		*plugin = 0;
+		ld->dladdr = ohdr->app_dest_ptr;
+		ld->header_addr = ohdr->dcd_ptr_ptr - offsetof(struct old_app_header, dcd_ptr);
+		ld->plugin = 0;
 		if (err >= 0) {
-			*max_length = dcd_end[0] | (dcd_end[1] << 8) | (dcd_end[2] << 16) | (dcd_end[3] << 24);
+			ld->max_length = dcd_end[0] | (dcd_end[1] << 8) | (dcd_end[2] << 16) | (dcd_end[3] << 24);
 		}
 		break;
 	}
@@ -1415,16 +1424,16 @@ int get_dl_start(struct sdp_dev *dev, unsigned char *p, unsigned char *file_star
 	{
 		unsigned char *bd;
 		struct ivt_header *hdr = (struct ivt_header *)p;
-		*dladdr = hdr->self_ptr;
-		*header_addr = hdr->self_ptr;
+		ld->dladdr = hdr->self_ptr;
+		ld->header_addr = hdr->self_ptr;
 		bd = hdr->boot_data_ptr + cvt_dest_to_src;
 		if ((bd < file_start) || ((bd + 4) > file_end)) {
 			printf("bad boot_data_ptr %08x\n", hdr->boot_data_ptr);
 			return -1;
 		}
-		*dladdr = ((struct boot_data *)bd)->dest;
-		*max_length = ((struct boot_data *)bd)->image_len;
-		*plugin = ((struct boot_data *)bd)->plugin;
+		ld->dladdr = ((struct boot_data *)bd)->dest;
+		ld->max_length = ((struct boot_data *)bd)->image_len;
+		ld->plugin = ((struct boot_data *)bd)->plugin;
 		((struct boot_data *)bd)->plugin = 0;
 		if (clear_boot_data) {
 			printf("Setting boot_data_ptr to 0\n");
@@ -1435,8 +1444,8 @@ int get_dl_start(struct sdp_dev *dev, unsigned char *p, unsigned char *file_star
 	case HDR_UBOOT:
 	{
 		image_header_t *hdr = (image_header_t *)p;
-		*dladdr = BE32(hdr->ih_load) - sizeof(image_header_t);
-		*header_addr = *dladdr;
+		ld->dladdr = BE32(hdr->ih_load) - sizeof(image_header_t);
+		ld->header_addr = ld->dladdr;
 	}
 	}
 	return 0;
@@ -1483,9 +1492,7 @@ int do_status(struct sdp_dev *dev)
 }
 
 int process_header(struct sdp_dev *dev, struct sdp_work *curr,
-		unsigned char *buf, int cnt, unsigned *p_dladdr,
-		unsigned *p_max_length, unsigned *p_plugin,
-		unsigned *p_header_addr)
+		unsigned char *buf, int cnt, struct load_desc *ld)
 {
 	int ret;
 	unsigned header_max = 0x800;
@@ -1497,8 +1504,8 @@ int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 	while (header_offset < header_max) {
 //		printf("header_offset=%x\n", header_offset);
 		if (is_header(dev, p)) {
-			ret = get_dl_start(dev, p, buf, cnt, p_dladdr, p_max_length, p_plugin,
-					p_header_addr, curr->clear_boot_data);
+			ret = get_dl_start(dev, p, buf, cnt, ld,
+					curr->clear_boot_data);
 			if (ret < 0) {
 				printf("!!get_dl_start returned %i\n", ret);
 				return ret;
@@ -1522,15 +1529,15 @@ int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 					return ret;
 				}
 			}
-			if (*p_plugin && (!curr->plug) && (!header_cnt)) {
+			if (ld->plugin && (!curr->plug) && (!header_cnt)) {
 				header_cnt++;
-				header_max = header_offset + *p_max_length + 0x400;
+				header_max = header_offset + ld->max_length + 0x400;
 				if (header_max > (unsigned)(cnt - 32))
 					header_max = (unsigned)(cnt - 32);
 				printf("header_max=%x\n", header_max);
 				header_inc = 4;
 			} else {
-				if (!*p_plugin)
+				if (!ld->plugin)
 					curr->plug = 0;
 				break;
 			}
@@ -1561,11 +1568,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 	unsigned char *verify_buffer = NULL;
 	unsigned verify_cnt;
 	unsigned char *p;
-	unsigned dladdr = 0;
-	unsigned max_length;
-	unsigned plugin = 0;
-	unsigned header_addr = 0;
-
+	struct load_desc ld = {};
 	unsigned skip = 0;
 	unsigned transferSize=0;
 
@@ -1591,10 +1594,9 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		ret = -2;
 		goto cleanup;
 	}
-	max_length = fsize;
+	ld.max_length = fsize;
 	if (curr->dcd || curr->clear_dcd || curr->plug || (curr->jump_mode >= J_HEADER)) {
-		ret = process_header(dev, curr, buf, cnt,
-				&dladdr, &max_length, &plugin, &header_addr);
+		ret = process_header(dev, curr, buf, cnt, &ld);
 		if (ret < 0)
 			goto cleanup;
 		header_offset = ret;
@@ -1604,22 +1606,22 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 			goto cleanup;
 		}
 	} else {
-		dladdr = curr->load_addr;
+		ld.dladdr = curr->load_addr;
 		printf("load_addr=%x\n", curr->load_addr);
-		header_addr = dladdr;
+		ld.header_addr = ld.dladdr;
 		header_offset = 0;
 	}
-	if (plugin && (!curr->plug)) {
+	if (ld.plugin && (!curr->plug)) {
 		printf("Only plugin header found\n");
 		ret = -1;
 		goto cleanup;
 	}
-	if (!dladdr) {
+	if (!ld.dladdr) {
 		printf("\nunknown load address\n");
 		ret = -3;
 		goto cleanup;
 	}
-	file_base = header_addr - header_offset;
+	file_base = ld.header_addr - header_offset;
 
 	type = (curr->plug || curr->jump_mode) ? FT_APP : FT_LOAD_ONLY;
 	if (dev->mode == MODE_BULK && type == FT_APP) {
@@ -1627,13 +1629,13 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		 * There is no jump command.  boot ROM requires the download
 		 * to start at header address
 		 */
-		dladdr = header_addr;
+		ld.dladdr = ld.header_addr;
 	}
-	if (file_base > dladdr) {
-		max_length -= (file_base - dladdr);
-		dladdr = file_base;
+	if (file_base > ld.dladdr) {
+		ld.max_length -= (file_base - ld.dladdr);
+		ld.dladdr = file_base;
 	}
-	skip = dladdr - file_base;
+	skip = ld.dladdr - file_base;
 	if ((int)skip > cnt) {
 		if (skip > fsize) {
 			printf("skip(0x%08x) > fsize(0x%08x) file_base=0x%08x, header_offset=0x%x\n", skip, fsize, file_base, header_offset);
@@ -1649,8 +1651,8 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 	p = &buf[skip];
 	cnt -= skip;
 	fsize -= skip;
-	if (fsize > max_length)
-		fsize = max_length;
+	if (fsize > ld.max_length)
+		fsize = ld.max_length;
 	if (verify) {
 		/*
 		 * we need to save header for verification
@@ -1670,22 +1672,22 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 			verify = 2;
 		}
 	}
-	printf("\nloading binary file(%s) to %08x, skip=%x, fsize=%x type=%x\n", curr->filename, dladdr, skip, fsize, type);
+	printf("\nloading binary file(%s) to %08x, skip=%x, fsize=%x type=%x\n", curr->filename, ld.dladdr, skip, fsize, type);
 	ret = load_file(dev, p, cnt, buf, BUF_SIZE,
-			dladdr, fsize, type, xfile);
+			ld.dladdr, fsize, type, xfile);
 	if (ret < 0)
 		goto cleanup;
 	transferSize = ret;
 
 	if (verify) {
-		ret = verify_memory(dev, xfile, skip, dladdr, fsize, verify_buffer, verify_cnt);
+		ret = verify_memory(dev, xfile, skip, ld.dladdr, fsize, verify_buffer, verify_cnt);
 		if (ret < 0)
 			goto cleanup;
 		if (verify == 2) {
 			if (verify_cnt > 64)
 				verify_cnt = 64;
 			ret = load_file(dev, verify_buffer, verify_cnt,
-					buf, BUF_SIZE, dladdr, verify_cnt,
+					buf, BUF_SIZE, ld.dladdr, verify_cnt,
 					FT_APP, xfile);
 			if (ret < 0)
 				goto cleanup;
@@ -1698,7 +1700,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 	 * explicitly send a jump command
 	 */
 	if (dev->mode == MODE_HID && type == FT_APP) {
-		ret = jump(dev, header_addr);
+		ret = jump(dev, ld.header_addr);
 		if (ret < 0)
 			goto cleanup;
 	}
