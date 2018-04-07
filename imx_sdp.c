@@ -1406,6 +1406,10 @@ int load_file_from_desc(struct sdp_dev *dev, struct sdp_work *curr,
 		if (ld->verify == 2) {
 			if (verify_cnt > 64)
 				verify_cnt = 64;
+			/*
+			 * This will set the right header address
+			 * for bulk mode, which has no jump command
+			 */
 			ret = load_file(dev, ld, verify_buffer, verify_cnt,
 					verify_cnt, FT_APP);
 			if (ret < 0)
