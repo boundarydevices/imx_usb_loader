@@ -55,6 +55,7 @@ struct load_desc {
 	unsigned max_length;
 	unsigned plugin;
 	unsigned header_addr;
+	unsigned header_offset;
 };
 
 int get_val(const char** pp, int base)
@@ -1501,12 +1502,11 @@ int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 	int ret;
 	unsigned header_max = 0x800;
 	unsigned header_inc = 0x400;
-	unsigned header_offset = 0;
 	int header_cnt = 0;
 	unsigned char *p = ld->buf_start;
 
-	while (header_offset < header_max) {
-//		printf("header_offset=%x\n", header_offset);
+	while (ld->header_offset < header_max) {
+//		printf("header_offset=%x\n", ld->header_offset);
 		if (is_header(dev, p)) {
 			ret = get_dl_start(dev, p, ld, curr->clear_boot_data);
 			if (ret < 0) {
@@ -1534,7 +1534,7 @@ int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 			}
 			if (ld->plugin && (!curr->plug) && (!header_cnt)) {
 				header_cnt++;
-				header_max = header_offset + ld->max_length + 0x400;
+				header_max = ld->header_offset + ld->max_length + 0x400;
 				if (header_max > (unsigned)(ld->buf_cnt - 32))
 					header_max = (unsigned)(ld->buf_cnt - 32);
 				printf("header_max=%x\n", header_max);
@@ -1545,10 +1545,10 @@ int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 				break;
 			}
 		}
-		header_offset += header_inc;
+		ld->header_offset += header_inc;
 		p += header_inc;
 	}
-	return header_offset;
+	return 0;
 }
 
 #define MAX_IN_LENGTH 100 // max length for user input strings
@@ -1562,7 +1562,6 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 	int ret;
 	unsigned char type;
 	unsigned fsize;
-	unsigned header_offset;
 	unsigned file_base;
 	unsigned char *verify_buffer = NULL;
 	unsigned verify_cnt;
@@ -1600,7 +1599,6 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		ret = process_header(dev, curr, &ld);
 		if (ret < 0)
 			goto cleanup;
-		header_offset = ret;
 		if ((!curr->jump_mode) && (!curr->plug)) {
 			/*  nothing else requested */
 			ret = 0;
@@ -1610,7 +1608,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		ld.dladdr = curr->load_addr;
 		printf("load_addr=%x\n", curr->load_addr);
 		ld.header_addr = ld.dladdr;
-		header_offset = 0;
+		ld.header_offset = 0;
 	}
 	if (ld.plugin && (!curr->plug)) {
 		printf("Only plugin header found\n");
@@ -1622,7 +1620,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		ret = -3;
 		goto cleanup;
 	}
-	file_base = ld.header_addr - header_offset;
+	file_base = ld.header_addr - ld.header_offset;
 
 	type = (curr->plug || curr->jump_mode) ? FT_APP : FT_LOAD_ONLY;
 	if (dev->mode == MODE_BULK && type == FT_APP) {
@@ -1640,7 +1638,8 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 	fsize = ld.fsize;
 	if ((int)skip > ld.buf_cnt) {
 		if (skip > fsize) {
-			printf("skip(0x%08x) > fsize(0x%08x) file_base=0x%08x, header_offset=0x%x\n", skip, fsize, file_base, header_offset);
+			printf("skip(0x%08x) > fsize(0x%08x) file_base=0x%08x, header_offset=0x%x\n",
+				skip, fsize, file_base, ld.header_offset);
 			ret = -4;
 			goto cleanup;
 		}
