@@ -1212,13 +1212,12 @@ int verify_memory(struct sdp_dev *dev, FILE *xfile, unsigned offset,
 	return mismatch ? -1 : 0;
 }
 
-int load_file(struct sdp_dev *dev,
-		unsigned char *p, int cnt, unsigned char *buf, unsigned buf_cnt,
-		unsigned dladdr, unsigned fsize, unsigned char type, FILE* xfile)
+int load_file(struct sdp_dev *dev, struct load_desc *ld, unsigned char *p,
+		int cnt, unsigned fsize, unsigned char type)
 {
 	struct sdp_command dl_command = {
 		.cmd = SDP_WRITE_FILE,
-		.addr = BE32(dladdr),
+		.addr = BE32(ld->dladdr),
 		.format = 0,
 		.cnt = BE32(fsize),
 		.data = 0,
@@ -1258,12 +1257,12 @@ int load_file(struct sdp_dev *dev,
 		}
 
 		if (!last_trans) break;
-		if (feof(xfile)) break;
+		if (feof(ld->xfile)) break;
 		cnt = fsize - transferSize;
 		if (cnt <= 0)
 			break;
-		cnt = fread(buf, 1 , get_min(cnt, (int)buf_cnt), xfile);
-		p = buf;
+		cnt = fread(ld->buf_start, 1 , get_min(cnt, (int)ld->buf_size), ld->xfile);
+		p = ld->buf_start;
 	}
 	printf("\n<<<%i, %i bytes>>>\n", fsize, transferSize);
 	if (dev->mode == MODE_HID) {
@@ -1395,8 +1394,7 @@ int load_file_from_desc(struct sdp_dev *dev, struct sdp_work *curr,
 		}
 	}
 	printf("\nloading binary file(%s) to %08x, skip=%x, fsize=%x type=%x\n", curr->filename, ld->dladdr, skip, fsize, type);
-	ret = load_file(dev, p, cnt, ld->buf_start, ld->buf_size,
-			ld->dladdr, fsize, type, ld->xfile);
+	ret = load_file(dev, ld, p, cnt, fsize, type);
 	if (ret < 0)
 		goto cleanup;
 	transferSize = ret;
@@ -1408,9 +1406,8 @@ int load_file_from_desc(struct sdp_dev *dev, struct sdp_work *curr,
 		if (ld->verify == 2) {
 			if (verify_cnt > 64)
 				verify_cnt = 64;
-			ret = load_file(dev, verify_buffer, verify_cnt,
-					ld->buf_start, ld->buf_size, ld->dladdr, verify_cnt,
-					FT_APP, ld->xfile);
+			ret = load_file(dev, ld, verify_buffer, verify_cnt,
+					verify_cnt, FT_APP);
 			if (ret < 0)
 				goto cleanup;
 
