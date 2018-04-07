@@ -31,6 +31,12 @@
 #include "portable.h"
 #include "imx_sdp.h"
 #include "image.h"
+
+#define FT_APP	0xaa
+#define FT_CSF	0xcc
+#define FT_DCD	0xee
+#define FT_LOAD_ONLY	0x00
+
 int debugmode = 0;
 
 #ifdef __GNUC__
@@ -1318,6 +1324,115 @@ int jump(struct sdp_dev *dev, unsigned int header_addr)
 	return 0;
 }
 
+int load_file_from_desc(struct sdp_dev *dev, struct sdp_work *curr,
+		struct load_desc *ld)
+{
+	int ret;
+	unsigned file_base;
+	unsigned char type;
+	unsigned skip = 0;
+	unsigned fsize;
+	unsigned char *verify_buffer = NULL;
+	unsigned verify_cnt;
+	unsigned transferSize=0;
+	unsigned char *p;
+	unsigned cnt;
+
+	if (!ld->dladdr) {
+		printf("\nunknown load address\n");
+		return -3;
+	}
+	file_base = ld->header_addr - ld->header_offset;
+
+	type = (curr->plug || curr->jump_mode) ? FT_APP : FT_LOAD_ONLY;
+	if (dev->mode == MODE_BULK && type == FT_APP) {
+		/*
+		 * There is no jump command.  boot ROM requires the download
+		 * to start at header address
+		 */
+		ld->dladdr = ld->header_addr;
+	}
+	if (file_base > ld->dladdr) {
+		ld->max_length -= (file_base - ld->dladdr);
+		ld->dladdr = file_base;
+	}
+	skip = ld->dladdr - file_base;
+	fsize = ld->fsize;
+	if ((int)skip > ld->buf_cnt) {
+		if (skip > fsize) {
+			printf("skip(0x%08x) > fsize(0x%08x) file_base=0x%08x, header_offset=0x%x\n",
+				skip, fsize, file_base, ld->header_offset);
+			ret = -4;
+			goto cleanup;
+		}
+		fseek(ld->xfile, skip, SEEK_SET);
+		fsize -= skip;
+		skip = 0;
+		ld->buf_cnt = fread(ld->buf_start, 1, ld->buf_size, ld->xfile);
+	}
+	p = &ld->buf_start[skip];
+	cnt = ld->buf_cnt -= skip;
+	fsize -= skip;
+	if (fsize > ld->max_length)
+		fsize = ld->max_length;
+	if (ld->verify) {
+		/*
+		 * we need to save header for verification
+		 * because some of the file is changed
+		 * before download
+		 */
+		verify_buffer = malloc(cnt);
+		verify_cnt = cnt;
+		if (!verify_buffer) {
+			printf("\nerror, out of memory\n");
+			ret = -2;
+			goto cleanup;
+		}
+		memcpy(verify_buffer, p, cnt);
+		if ((type == FT_APP) && (dev->mode != MODE_HID)) {
+			type = FT_LOAD_ONLY;
+			ld->verify = 2;
+		}
+	}
+	printf("\nloading binary file(%s) to %08x, skip=%x, fsize=%x type=%x\n", curr->filename, ld->dladdr, skip, fsize, type);
+	ret = load_file(dev, p, cnt, ld->buf_start, ld->buf_size,
+			ld->dladdr, fsize, type, ld->xfile);
+	if (ret < 0)
+		goto cleanup;
+	transferSize = ret;
+
+	if (ld->verify) {
+		ret = verify_memory(dev, ld->xfile, skip, ld->dladdr, fsize, verify_buffer, verify_cnt);
+		if (ret < 0)
+			goto cleanup;
+		if (ld->verify == 2) {
+			if (verify_cnt > 64)
+				verify_cnt = 64;
+			ret = load_file(dev, verify_buffer, verify_cnt,
+					ld->buf_start, ld->buf_size, ld->dladdr, verify_cnt,
+					FT_APP, ld->xfile);
+			if (ret < 0)
+				goto cleanup;
+
+		}
+	}
+
+	/*
+	 * Any command will initiate jump for bulk devices, no need to
+	 * explicitly send a jump command
+	 */
+	if (dev->mode == MODE_HID && type == FT_APP) {
+		ret = jump(dev, ld->header_addr);
+		if (ret < 0)
+			goto cleanup;
+	}
+
+	ret = (fsize <= transferSize) ? 0 : -16;
+cleanup:
+	free(verify_buffer);
+	return ret;
+}
+
 int is_header(struct sdp_dev *dev, unsigned char *p)
 {
 	switch (dev->header_type) {
@@ -1554,23 +1669,10 @@ int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 
 #define MAX_IN_LENGTH 100 // max length for user input strings
 
-#define FT_APP	0xaa
-#define FT_CSF	0xcc
-#define FT_DCD	0xee
-#define FT_LOAD_ONLY	0x00
 int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 {
 	int ret;
-	unsigned char type;
-	unsigned fsize;
-	unsigned file_base;
-	unsigned char *verify_buffer = NULL;
-	unsigned verify_cnt;
-	unsigned char *p;
 	struct load_desc ld = {};
-	unsigned skip = 0;
-	unsigned transferSize=0;
-	unsigned cnt;
 
 	print_sdp_work(curr);
 	ld.verify = verify;
@@ -1617,100 +1719,9 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		ret = -1;
 		goto cleanup;
 	}
-	if (!ld.dladdr) {
-		printf("\nunknown load address\n");
-		ret = -3;
-		goto cleanup;
-	}
-	file_base = ld.header_addr - ld.header_offset;
-
-	type = (curr->plug || curr->jump_mode) ? FT_APP : FT_LOAD_ONLY;
-	if (dev->mode == MODE_BULK && type == FT_APP) {
-		/*
-		 * There is no jump command.  boot ROM requires the download
-		 * to start at header address
-		 */
-		ld.dladdr = ld.header_addr;
-	}
-	if (file_base > ld.dladdr) {
-		ld.max_length -= (file_base - ld.dladdr);
-		ld.dladdr = file_base;
-	}
-	skip = ld.dladdr - file_base;
-	fsize = ld.fsize;
-	if ((int)skip > ld.buf_cnt) {
-		if (skip > fsize) {
-			printf("skip(0x%08x) > fsize(0x%08x) file_base=0x%08x, header_offset=0x%x\n",
-				skip, fsize, file_base, ld.header_offset);
-			ret = -4;
-			goto cleanup;
-		}
-		fseek(ld.xfile, skip, SEEK_SET);
-		fsize -= skip;
-		skip = 0;
-		ld.buf_cnt = fread(ld.buf_start, 1, ld.buf_size, ld.xfile);
-	}
-	p = &ld.buf_start[skip];
-	cnt = ld.buf_cnt -= skip;
-	fsize -= skip;
-	if (fsize > ld.max_length)
-		fsize = ld.max_length;
-	if (ld.verify) {
-		/*
-		 * we need to save header for verification
-		 * because some of the file is changed
-		 * before download
-		 */
-		verify_buffer = malloc(cnt);
-		verify_cnt = cnt;
-		if (!verify_buffer) {
-			printf("\nerror, out of memory\n");
-			ret = -2;
-			goto cleanup;
-		}
-		memcpy(verify_buffer, p, cnt);
-		if ((type == FT_APP) && (dev->mode != MODE_HID)) {
-			type = FT_LOAD_ONLY;
-			ld.verify = 2;
-		}
-	}
-	printf("\nloading binary file(%s) to %08x, skip=%x, fsize=%x type=%x\n", curr->filename, ld.dladdr, skip, fsize, type);
-	ret = load_file(dev, p, cnt, ld.buf_start, ld.buf_size,
-			ld.dladdr, fsize, type, ld.xfile);
-	if (ret < 0)
-		goto cleanup;
-	transferSize = ret;
-
-	if (ld.verify) {
-		ret = verify_memory(dev, ld.xfile, skip, ld.dladdr, fsize, verify_buffer, verify_cnt);
-		if (ret < 0)
-			goto cleanup;
-		if (ld.verify == 2) {
-			if (verify_cnt > 64)
-				verify_cnt = 64;
-			ret = load_file(dev, verify_buffer, verify_cnt,
-					ld.buf_start, ld.buf_size, ld.dladdr, verify_cnt,
-					FT_APP, ld.xfile);
-			if (ret < 0)
-				goto cleanup;
-
-		}
-	}
-
-	/*
-	 * Any command will initiate jump for bulk devices, no need to
-	 * explicitly send a jump command
-	 */
-	if (dev->mode == MODE_HID && type == FT_APP) {
-		ret = jump(dev, ld.header_addr);
-		if (ret < 0)
-			goto cleanup;
-	}
-
-	ret = (fsize <= transferSize) ? 0 : -16;
+	ret = load_file_from_desc(dev, curr, &ld);
 cleanup:
 	fclose(ld.xfile);
-	free(verify_buffer);
 	free(ld.buf_start);
 	return ret;
 }
