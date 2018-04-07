@@ -48,6 +48,7 @@ int debugmode = 0;
 struct load_desc {
 	FILE* xfile;
 	unsigned fsize;
+	int verify;
 	unsigned char *buf_start;
 	unsigned buf_size;
 	unsigned buf_cnt;
@@ -1572,6 +1573,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 	unsigned cnt;
 
 	print_sdp_work(curr);
+	ld.verify = verify;
 	ld.xfile = fopen(curr->filename, "rb" );
 	if (!ld.xfile) {
 		printf("\nerror, can not open input file: %s\n", curr->filename);
@@ -1653,7 +1655,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 	fsize -= skip;
 	if (fsize > ld.max_length)
 		fsize = ld.max_length;
-	if (verify) {
+	if (ld.verify) {
 		/*
 		 * we need to save header for verification
 		 * because some of the file is changed
@@ -1669,7 +1671,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		memcpy(verify_buffer, p, cnt);
 		if ((type == FT_APP) && (dev->mode != MODE_HID)) {
 			type = FT_LOAD_ONLY;
-			verify = 2;
+			ld.verify = 2;
 		}
 	}
 	printf("\nloading binary file(%s) to %08x, skip=%x, fsize=%x type=%x\n", curr->filename, ld.dladdr, skip, fsize, type);
@@ -1679,11 +1681,11 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		goto cleanup;
 	transferSize = ret;
 
-	if (verify) {
+	if (ld.verify) {
 		ret = verify_memory(dev, ld.xfile, skip, ld.dladdr, fsize, verify_buffer, verify_cnt);
 		if (ret < 0)
 			goto cleanup;
-		if (verify == 2) {
+		if (ld.verify == 2) {
 			if (verify_cnt > 64)
 				verify_cnt = 64;
 			ret = load_file(dev, verify_buffer, verify_cnt,
