@@ -47,6 +47,7 @@ int debugmode = 0;
 
 struct load_desc {
 	FILE* xfile;
+	unsigned fsize;
 	unsigned char *buf_start;
 	unsigned buf_size;
 	unsigned buf_cnt;
@@ -1584,9 +1585,9 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		ret = -2;
 		goto cleanup;
 	}
-	fsize = get_file_size(ld.xfile);
-	if (curr->load_size && (fsize > curr->load_size))
-		fsize = curr->load_size;
+	ld.fsize = get_file_size(ld.xfile);
+	if (curr->load_size && (ld.fsize > curr->load_size))
+		ld.fsize = curr->load_size;
 	ld.buf_cnt = fread(ld.buf_start, 1, ld.buf_size, ld.xfile);
 
 	if (ld.buf_cnt < 0x20) {
@@ -1594,7 +1595,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		ret = -2;
 		goto cleanup;
 	}
-	ld.max_length = fsize;
+	ld.max_length = ld.fsize;
 	if (curr->dcd || curr->clear_dcd || curr->plug || (curr->jump_mode >= J_HEADER)) {
 		ret = process_header(dev, curr, &ld);
 		if (ret < 0)
@@ -1636,6 +1637,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		ld.dladdr = file_base;
 	}
 	skip = ld.dladdr - file_base;
+	fsize = ld.fsize;
 	if ((int)skip > ld.buf_cnt) {
 		if (skip > fsize) {
 			printf("skip(0x%08x) > fsize(0x%08x) file_base=0x%08x, header_offset=0x%x\n", skip, fsize, file_base, header_offset);
