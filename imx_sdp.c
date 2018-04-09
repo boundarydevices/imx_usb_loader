@@ -1414,16 +1414,6 @@ int load_file_from_desc(struct sdp_dev *dev, struct sdp_work *curr,
 		}
 	}
 
-	/*
-	 * Any command will initiate jump for bulk devices, no need to
-	 * explicitly send a jump command
-	 */
-	if (dev->mode == MODE_HID && type == FT_APP) {
-		ret = jump(dev, ld->header_addr);
-		if (ret < 0)
-			goto cleanup;
-	}
-
 	ret = (fsize <= transferSize) ? 0 : -16;
 cleanup:
 	free(verify_buffer);
@@ -1717,6 +1707,16 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		goto cleanup;
 	}
 	ret = load_file_from_desc(dev, curr, &ld);
+	/*
+	 * Any command will initiate jump for bulk devices, no need to
+	 * explicitly send a jump command
+	 */
+	if (dev->mode == MODE_HID && (curr->plug || curr->jump_mode)) {
+		ret = jump(dev, ld.header_addr);
+		if (ret < 0)
+			goto cleanup;
+	}
+
 cleanup:
 	fclose(ld.xfile);
 	free(ld.buf_start);
