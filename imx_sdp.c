@@ -736,20 +736,37 @@ void perform_mem_work(struct sdp_dev *dev, struct mem_work *mem)
 	}
 }
 
-static int do_data_transfer(struct sdp_dev *dev, unsigned char *buf, int len,
-			int *last_trans)
+static int do_data_transfer(struct sdp_dev *dev, unsigned char *buf, int len)
 {
 	int err;
 	int retry = 10;
 	int max = dev->max_transfer;
+	int last_trans;
+	int cnt;
+	int transferSize = 0;
 
 	while (retry) {
-		err = dev->transfer(dev, 2, buf, get_min(len, max), 0, last_trans);
-		if (!err)
-			return 0;
+		cnt = get_min(len, max);
+		err = dev->transfer(dev, 2, buf, cnt, 0, &last_trans);
+		if (!err) {
+			if (cnt > last_trans)
+				cnt = last_trans;
+			if (!cnt) {
+				printf("Nothing transferred, err=%i transferSize=%i\n", err, transferSize);
+				return -EIO;
+			}
+			transferSize += cnt;
+			buf += cnt;
+			len -= cnt;
+			if (!len)
+				return transferSize;
+			retry = 10;
+			max = dev->max_transfer;
+			continue;
+		}
 
-		printf("report 2 out err=%i, last_trans=%i cnt=0x%x max=0x%x retry=%i\n",
-			err, *last_trans, len, max, retry);
+		printf("report 2 out err=%i, last_trans=%i len=0x%x max=0x%x retry=%i\n",
+			err, last_trans, len, max, retry);
 
 		if (max >= 16)
 			max >>= 1;
@@ -780,7 +797,7 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 	unsigned char* dcd, *dcd_end;
 	unsigned char* file_end = file_start + cnt;
 
-	int last_trans, err;
+	int err;
 	unsigned transferSize=0;
 
 	if (!hdr->dcd_ptr) {
@@ -823,19 +840,10 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 	if (err)
 		return err;
 
-	while (length > 0) {
-		err = do_data_transfer(dev, dcd, length, &last_trans);
-		if (err)
-			return err;
-
-		if (!last_trans) {
-			printf("Nothing last_trans, err=%i\n", err);
-			break;
-		}
-		dcd += last_trans;
-		length -= last_trans;
-		transferSize += last_trans;
-	}
+	err = do_data_transfer(dev, dcd, length);
+	if (err < 0)
+		return err;
+	transferSize = err;
 
 	printf("\n<<<%i, %i bytes>>>\n", length, transferSize);
 	if (dev->mode == MODE_HID) {
@@ -1222,7 +1230,7 @@ int load_file(struct sdp_dev *dev, struct load_desc *ld, unsigned char *p,
 		.cnt = BE32(fsize),
 		.data = 0,
 		.rsvd = type};
-	int last_trans, err;
+	int err;
 	unsigned transferSize=0;
 
 	do_command(dev, &dl_command, 5);
@@ -1238,25 +1246,13 @@ int load_file(struct sdp_dev *dev, struct load_desc *ld, unsigned char *p,
 		if (cnt > (int)(fsize-transferSize)) cnt = (fsize-transferSize);
 		if (cnt <= 0)
 			break;
-		while (cnt) {
-			err = do_data_transfer(dev, p, cnt, &last_trans);
-			if (err)
-				return err;
+		err = do_data_transfer(dev, p, cnt);
+		if (err < 0)
+			return err;
+		if (!err)
+			break;
+		transferSize += err;
 
-			if (cnt < last_trans) {
-				dbg_printf("note: last_trans=0x%x, attempted only=0%x\n", last_trans, cnt);
-				cnt = last_trans;
-			}
-			if (!last_trans) {
-				printf("Nothing last_trans, err=%i\n", err);
-				break;
-			}
-			p += last_trans;
-			cnt -= last_trans;
-			transferSize += last_trans;
-		}
-
-		if (!last_trans) break;
 		if (feof(ld->xfile)) break;
 		cnt = fsize - transferSize;
 		if (cnt <= 0)
