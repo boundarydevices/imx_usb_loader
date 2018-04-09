@@ -58,6 +58,7 @@ struct load_desc {
 	unsigned char *buf_start;
 	unsigned buf_size;
 	unsigned buf_cnt;
+	unsigned buf_offset;
 	unsigned dladdr;
 	unsigned max_length;
 	unsigned plugin;
@@ -1257,7 +1258,9 @@ int load_file(struct sdp_dev *dev, struct load_desc *ld, unsigned char *p,
 		cnt = fsize - transferSize;
 		if (cnt <= 0)
 			break;
-		cnt = fread(ld->buf_start, 1 , get_min(cnt, (int)ld->buf_size), ld->xfile);
+		ld->buf_offset += ld->buf_cnt;
+		cnt = fread(ld->buf_start, 1, get_min(cnt, (int)ld->buf_size), ld->xfile);
+		ld->buf_cnt = cnt;
 		p = ld->buf_start;
 	}
 	printf("\n<<<%i, %i bytes>>>\n", fsize, transferSize);
@@ -1361,6 +1364,7 @@ int load_file_from_desc(struct sdp_dev *dev, struct sdp_work *curr,
 			goto cleanup;
 		}
 		fseek(ld->xfile, skip, SEEK_SET);
+		ld->buf_offset = skip;
 		fsize -= skip;
 		skip = 0;
 		ld->buf_cnt = fread(ld->buf_start, 1, ld->buf_size, ld->xfile);
