@@ -64,6 +64,7 @@ struct load_desc {
 	unsigned plugin;
 	unsigned header_addr;
 	unsigned header_offset;
+	unsigned char writeable_header[1024];
 };
 
 int get_val(const char** pp, int base)
@@ -1143,42 +1144,58 @@ void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr)
 	}
 }
 
-int verify_memory(struct sdp_dev *dev, FILE *xfile, unsigned offset,
-		unsigned addr, unsigned size, unsigned char *verify_buffer,
-		unsigned verify_cnt)
+void fetch_data(struct load_desc *ld, unsigned foffset, unsigned char **p, unsigned *cnt)
+{
+	unsigned skip = foffset - ld->header_offset;
+
+	if (skip < sizeof(ld->writeable_header)) {
+		*p = &ld->writeable_header[skip];
+		*cnt = sizeof(ld->writeable_header) - skip;
+		return;
+	}
+	skip = foffset - ld->buf_offset;
+	if (skip >= ld->buf_cnt) {
+		fseek(ld->xfile, foffset, SEEK_SET);
+		ld->buf_offset = foffset;
+		ld->buf_cnt = fread(ld->buf_start, 1, ld->buf_size, ld->xfile);
+		skip = 0;
+	}
+	*p = &ld->buf_start[skip];
+	*cnt = ld->buf_cnt - skip;
+}
+
+int verify_memory(struct sdp_dev *dev, struct load_desc *ld, unsigned foffset,
+		unsigned size)
 {
 	int mismatch = 0;
-	unsigned char file_buf[1024];
 	unsigned verified = 0;
 	unsigned total = size;
-	fseek(xfile, offset + verify_cnt, SEEK_SET);
+	unsigned addr = ld->dladdr;
 
 	while (size) {
+		unsigned char *p;
+		unsigned cnt;
 		unsigned char mem_buf[64];
-		unsigned char *p = file_buf;
-		int cnt = addr & 0x3f;
-		int request = get_min(size, sizeof(file_buf));
-		if (cnt) {
-			cnt = 64 - cnt;
-			if (request > cnt)
-				request = cnt;
+		int align_cnt = foffset & 0x3f;
+
+		fetch_data(ld, foffset, &p, &cnt);
+		if (align_cnt) {
+			align_cnt = 64 - align_cnt;
+			if (cnt > align_cnt)
+				cnt = align_cnt;
 		}
-		if (verify_cnt) {
-			p = verify_buffer;
-			cnt = (int)get_min(request, (int)verify_cnt);
-			verify_buffer += cnt;
-			verify_cnt -= cnt;
-		} else {
-			cnt = fread(p, 1, request, xfile);
-			if (cnt <= 0) {
-				printf("Unexpected end of file, request=0x%0x, size=0x%x, cnt=%i\n", request, size, cnt);
-				return -1;
-			}
+		if (cnt <= 0) {
+			printf("Unexpected end of file, size=0x%x, cnt=%i\n", size, cnt);
+			return -1;
 		}
+		if (cnt > size)
+			cnt = size;
 		size -= cnt;
+		foffset += cnt;
 		while (cnt) {
 			int ret;
-			request = get_min(cnt, sizeof(mem_buf));
+			unsigned request = get_min(cnt, sizeof(mem_buf));
+
 			ret = read_memory(dev, addr, mem_buf, request);
 			if (ret < 0) {
 				printf("verified 0x%x of 0x%x before usb error\n", verified, total);
@@ -1186,6 +1203,7 @@ int verify_memory(struct sdp_dev *dev, FILE *xfile, unsigned offset,
 			}
 			if (memcmp(p, mem_buf, request)) {
 				unsigned char * m = mem_buf;
+				unsigned offset = foffset;
 				if (!mismatch)
 					printf("!!!!mismatch\n");
 				mismatch++;
@@ -1210,7 +1228,6 @@ int verify_memory(struct sdp_dev *dev, FILE *xfile, unsigned offset,
 					return -1;
 			}
 			p += request;
-			offset += request;
 			addr += request;
 			cnt -= request;
 			verified += request;
@@ -1221,8 +1238,8 @@ int verify_memory(struct sdp_dev *dev, FILE *xfile, unsigned offset,
 	return mismatch ? -1 : 0;
 }
 
-int load_file(struct sdp_dev *dev, struct load_desc *ld, unsigned char *p,
-		int cnt, unsigned fsize, unsigned char type)
+int load_file(struct sdp_dev *dev, struct load_desc *ld, unsigned foffset,
+		unsigned fsize, unsigned char type)
 {
 	struct sdp_command dl_command = {
 		.cmd = SDP_WRITE_FILE,
@@ -1233,6 +1250,8 @@ int load_file(struct sdp_dev *dev, struct load_desc *ld, unsigned char *p,
 		.rsvd = type};
 	int err;
 	unsigned transferSize=0;
+	unsigned char *p;
+	unsigned cnt;
 
 	do_command(dev, &dl_command, 5);
 
@@ -1244,6 +1263,7 @@ int load_file(struct sdp_dev *dev, struct load_desc *ld, unsigned char *p,
 	}
 
 	while (1) {
+		fetch_data(ld, foffset, &p, &cnt);
 		if (cnt > (int)(fsize-transferSize)) cnt = (fsize-transferSize);
 		if (cnt <= 0)
 			break;
@@ -1253,15 +1273,7 @@ int load_file(struct sdp_dev *dev, struct load_desc *ld, unsigned char *p,
 		if (!err)
 			break;
 		transferSize += err;
-
-		if (feof(ld->xfile)) break;
-		cnt = fsize - transferSize;
-		if (cnt <= 0)
-			break;
-		ld->buf_offset += ld->buf_cnt;
-		cnt = fread(ld->buf_start, 1, get_min(cnt, (int)ld->buf_size), ld->xfile);
-		ld->buf_cnt = cnt;
-		p = ld->buf_start;
+		foffset += err;
 	}
 	printf("\n<<<%i, %i bytes>>>\n", fsize, transferSize);
 	if (dev->mode == MODE_HID) {
@@ -1330,17 +1342,13 @@ int load_file_from_desc(struct sdp_dev *dev, struct sdp_work *curr,
 	unsigned char type;
 	unsigned skip = 0;
 	unsigned fsize;
-	unsigned char *verify_buffer = NULL;
-	unsigned verify_cnt;
 	unsigned transferSize=0;
-	unsigned char *p;
 	unsigned cnt;
 
 	if (!ld->dladdr) {
 		printf("\nunknown load address\n");
 		return -3;
 	}
-	file_base = ld->header_addr - ld->header_offset;
 
 	type = (curr->plug || curr->jump_mode) ? FT_APP : FT_LOAD_ONLY;
 	if (dev->mode == MODE_BULK && type == FT_APP) {
@@ -1350,68 +1358,49 @@ int load_file_from_desc(struct sdp_dev *dev, struct sdp_work *curr,
 		 */
 		ld->dladdr = ld->header_addr;
 	}
-	if (file_base > ld->dladdr) {
-		ld->max_length -= (file_base - ld->dladdr);
-		ld->dladdr = file_base;
-	}
-	skip = ld->dladdr - file_base;
-	fsize = ld->fsize;
-	if ((int)skip > ld->buf_cnt) {
-		if (skip > fsize) {
-			printf("skip(0x%08x) > fsize(0x%08x) file_base=0x%08x, header_offset=0x%x\n",
-				skip, fsize, file_base, ld->header_offset);
-			ret = -4;
-			goto cleanup;
-		}
-		fseek(ld->xfile, skip, SEEK_SET);
-		ld->buf_offset = skip;
-		fsize -= skip;
-		skip = 0;
-		ld->buf_cnt = fread(ld->buf_start, 1, ld->buf_size, ld->xfile);
-	}
-	p = &ld->buf_start[skip];
-	cnt = ld->buf_cnt -= skip;
-	fsize -= skip;
-	if (fsize > ld->max_length)
-		fsize = ld->max_length;
 	if (ld->verify) {
-		/*
-		 * we need to save header for verification
-		 * because some of the file is changed
-		 * before download
-		 */
-		verify_buffer = malloc(cnt);
-		verify_cnt = cnt;
-		if (!verify_buffer) {
-			printf("\nerror, out of memory\n");
-			ret = -2;
-			goto cleanup;
-		}
-		memcpy(verify_buffer, p, cnt);
 		if ((type == FT_APP) && (dev->mode != MODE_HID)) {
 			type = FT_LOAD_ONLY;
 			ld->verify = 2;
 		}
 	}
+	file_base = ld->header_addr - ld->header_offset;
+	if (file_base > ld->dladdr) {
+		ld->max_length -= (file_base - ld->dladdr);
+		ld->dladdr = file_base;
+	}
+	skip = ld->dladdr - file_base;
+
+	fsize = ld->fsize - skip;
+	if (fsize > ld->max_length)
+		fsize = ld->max_length;
+	if (skip > fsize) {
+		printf("skip(0x%08x) > fsize(0x%08x) file_base=0x%08x, header_offset=0x%x\n",
+				skip, fsize, file_base, ld->header_offset);
+		ret = -4;
+		goto cleanup;
+	}
 	printf("\nloading binary file(%s) to %08x, skip=%x, fsize=%x type=%x\n", curr->filename, ld->dladdr, skip, fsize, type);
-	ret = load_file(dev, ld, p, cnt, fsize, type);
+
+	ret = load_file(dev, ld, skip, fsize, type);
 	if (ret < 0)
 		goto cleanup;
 	transferSize = ret;
 
 	if (ld->verify) {
-		ret = verify_memory(dev, ld->xfile, skip, ld->dladdr, fsize, verify_buffer, verify_cnt);
+		ret = verify_memory(dev, ld, skip, fsize);
 		if (ret < 0)
 			goto cleanup;
 		if (ld->verify == 2) {
-			if (verify_cnt > 64)
-				verify_cnt = 64;
+			cnt = fsize;
+			if (cnt > 64)
+				cnt = 64;
 			/*
 			 * This will set the right header address
 			 * for bulk mode, which has no jump command
 			 */
-			ret = load_file(dev, ld, verify_buffer, verify_cnt,
-					verify_cnt, FT_APP);
+			ret = load_file(dev, ld, ld->header_offset, cnt,
+					FT_APP);
 			if (ret < 0)
 				goto cleanup;
 
@@ -1420,7 +1409,6 @@ int load_file_from_desc(struct sdp_dev *dev, struct sdp_work *curr,
 
 	ret = (fsize <= transferSize) ? 0 : -16;
 cleanup:
-	free(verify_buffer);
 	return ret;
 }
 
@@ -1532,19 +1520,31 @@ int get_dl_start(struct sdp_dev *dev, unsigned char *p,
 	}
 	case HDR_MX53:
 	{
-		unsigned char *bd;
+		struct boot_data *bd;
+		unsigned char* p1;
+		uint32_t *bd1;
+		unsigned offset;
 		struct ivt_header *hdr = (struct ivt_header *)p;
+
 		ld->dladdr = hdr->self_ptr;
 		ld->header_addr = hdr->self_ptr;
-		bd = hdr->boot_data_ptr + cvt_dest_to_src;
-		if ((bd < ld->buf_start) || ((bd + 4) > file_end)) {
+		p1 = (hdr->boot_data_ptr + cvt_dest_to_src);
+
+		if ((p1 < ld->buf_start) || ((p1 + 4) > file_end)) {
 			printf("bad boot_data_ptr %08x\n", hdr->boot_data_ptr);
 			return -1;
 		}
-		ld->dladdr = ((struct boot_data *)bd)->dest;
-		ld->max_length = ((struct boot_data *)bd)->image_len;
-		ld->plugin = ((struct boot_data *)bd)->plugin;
-		((struct boot_data *)bd)->plugin = 0;
+		bd = (struct boot_data *)p1;
+		ld->dladdr = bd->dest;
+		ld->max_length = bd->image_len;
+		ld->plugin = bd->plugin;
+		offset = ((unsigned char *)&bd->plugin) - p;
+		if (offset <= sizeof(ld->writeable_header) - 4) {
+			bd1 = (uint32_t *)(ld->writeable_header + offset);
+			*bd1 = 0;
+		} else {
+			printf("Can't clear plugin flag\n");
+		}
 		if (clear_boot_data) {
 			printf("Setting boot_data_ptr to 0\n");
 			hdr->boot_data_ptr = 0;
@@ -1613,6 +1613,8 @@ int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 	while (ld->header_offset < header_max) {
 //		printf("header_offset=%x\n", ld->header_offset);
 		if (is_header(dev, p)) {
+			memcpy(ld->writeable_header, p,
+					sizeof(ld->writeable_header));
 			ret = get_dl_start(dev, p, ld, curr->clear_boot_data);
 			if (ret < 0) {
 				printf("!!get_dl_start returned %i\n", ret);
@@ -1621,7 +1623,7 @@ int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 			if (curr->dcd) {
 				ret = perform_dcd(dev, p, ld->buf_start, ld->buf_cnt);
 #if 1
-				clear_dcd_ptr(dev, p);
+				clear_dcd_ptr(dev, ld->writeable_header);
 #endif
 				if (ret < 0) {
 					printf("!!perform_dcd returned %i\n", ret);
@@ -1634,7 +1636,7 @@ int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 				}
 			}
 			if (curr->clear_dcd) {
-				ret = clear_dcd_ptr(dev, p);
+				ret = clear_dcd_ptr(dev, ld->writeable_header);
 				if (ret < 0) {
 					printf("!!clear_dcd returned %i\n", ret);
 					return ret;
