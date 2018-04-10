@@ -1743,6 +1743,7 @@ int do_simulation(struct sdp_dev *dev, int report, unsigned char *p, unsigned in
 	static struct sdp_command cur_cmd;
 	static struct sim_memory *cur_mem;
 	unsigned int offset;
+	unsigned mem_addr;
 
 	switch (report) {
 	case 1:
@@ -1801,7 +1802,20 @@ int do_simulation(struct sdp_dev *dev, int report, unsigned char *p, unsigned in
 			*((unsigned int *)p) = BE32(0x128a8a12UL);
 			break;
 		case SDP_READ_REG:
-			offset = BE32(cur_cmd.addr) - cur_mem->addr;
+			cur_mem = head;
+			mem_addr = BE32(cur_cmd.addr);
+			while (cur_mem) {
+				if (cur_mem->addr <=  mem_addr &&
+				    cur_mem->addr + cur_mem->len > mem_addr) {
+					if ((mem_addr + cnt) > (cur_mem->addr + cur_mem->len))
+						return -EIO;
+					break;
+				}
+				cur_mem = cur_mem->next;
+			}
+			if (!cur_mem)
+				return -EIO;
+			offset = mem_addr - cur_mem->addr;
 			memcpy(p, cur_mem->buf + offset, cnt);
 			break;
 		case SDP_JUMP_ADDRESS:
