@@ -1459,9 +1459,6 @@ int perform_dcd(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start
 		struct old_app_header *ohdr = (struct old_app_header *)p;
 		ret = write_dcd_table_old(dev, ohdr, file_start, cnt);
 		dbg_printf("dcd_ptr=0x%08x\n", ohdr->dcd_ptr);
-#if 1
-		ohdr->dcd_ptr = 0;
-#endif
 		if (ret < 0)
 			return ret;
 		break;
@@ -1476,9 +1473,6 @@ int perform_dcd(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start
 			ret = write_dcd_table_ivt(dev, hdr, file_start, cnt);
 		}
 		dbg_printf("dcd_ptr=0x%08x\n", hdr->dcd_ptr);
-#if 1
-		hdr->dcd_ptr = 0;
-#endif
 		if (ret < 0)
 			return ret;
 		break;
@@ -1487,21 +1481,25 @@ int perform_dcd(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start
 	return 0;
 }
 
-int clear_dcd_ptr(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start, unsigned cnt)
+int clear_dcd_ptr(struct sdp_dev *dev, unsigned char *p)
 {
 	switch (dev->header_type) {
 	case HDR_MX51:
 	{
 		struct old_app_header *ohdr = (struct old_app_header *)p;
-		printf("clear dcd_ptr=0x%08x\n", ohdr->dcd_ptr);
-		ohdr->dcd_ptr = 0;
+		if (ohdr->dcd_ptr) {
+			printf("clear dcd_ptr=0x%08x\n", ohdr->dcd_ptr);
+			ohdr->dcd_ptr = 0;
+		}
 		break;
 	}
 	case HDR_MX53:
 	{
 		struct ivt_header *hdr = (struct ivt_header *)p;
-		printf("clear dcd_ptr=0x%08x\n", hdr->dcd_ptr);
-		hdr->dcd_ptr = 0;
+		if (hdr->dcd_ptr) {
+			printf("clear dcd_ptr=0x%08x\n", hdr->dcd_ptr);
+			hdr->dcd_ptr = 0;
+		}
 		break;
 	}
 	}
@@ -1622,6 +1620,9 @@ int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 			}
 			if (curr->dcd) {
 				ret = perform_dcd(dev, p, ld->buf_start, ld->buf_cnt);
+#if 1
+				clear_dcd_ptr(dev, p);
+#endif
 				if (ret < 0) {
 					printf("!!perform_dcd returned %i\n", ret);
 					return ret;
@@ -1633,7 +1634,7 @@ int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 				}
 			}
 			if (curr->clear_dcd) {
-				ret = clear_dcd_ptr(dev, p, ld->buf_start, ld->buf_cnt);
+				ret = clear_dcd_ptr(dev, p);
 				if (ret < 0) {
 					printf("!!clear_dcd returned %i\n", ret);
 					return ret;
