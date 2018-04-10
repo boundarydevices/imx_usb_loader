@@ -37,10 +37,11 @@ cmd: 0a0a
 report=2, cnt=16
 00000000: d2 00 10 40  cc 00 0c 04  30 00 00 00  12 34 56 78
 
-<<<0, 16 bytes>>>
+<<<16, 16 bytes>>>
 report=3, cnt=64
 report=4, cnt=64
 succeeded (security 0x56787856, status 0x128a8a12)
+clear dcd_ptr=0x877ff42c
 
 loading binary file(test-dcd.imx) to 877ff400, skip=0, fsize=1c00 type=aa
 report=1, cnt=16
