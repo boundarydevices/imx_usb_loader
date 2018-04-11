@@ -320,6 +320,16 @@ void parse_file_work(struct sdp_work *curr, const char *filename, const char *p)
 			curr->load_addr = get_val(&p, 16);
 			p = skip(p,',');
 		}
+		if (strncmp(p, "size", 4) == 0) {
+			p += 4;
+			curr->load_size = get_val(&p, 16);
+			p = skip(p,',');
+		}
+		if (strncmp(p, "skip", 4) == 0) {
+			p += 4;
+			curr->load_skip = get_val(&p, 16);
+			p = skip(p,',');
+		}
 		if (strncmp(p, "jump", 4) == 0) {
 			p += 4;
 			curr->jump_mode = J_ADDR;
@@ -1409,16 +1419,16 @@ int load_file_from_desc(struct sdp_dev *dev, struct sdp_work *curr,
 	}
 	dbg_printf("skip=%x cnt=%x dladdr=%x file_base=%x fsize=%x max_length=%x\n", skip, ld->buf_cnt, ld->dladdr, file_base, ld->fsize, ld->max_length);
 	skip = ld->dladdr - file_base;
-
-	fsize = ld->fsize - skip;
-	if (fsize > ld->max_length)
-		fsize = ld->max_length;
+	fsize = ld->fsize;
 	if (skip > fsize) {
 		printf("skip(0x%08x) > fsize(0x%08x) file_base=0x%08x, header_offset=0x%x\n",
 				skip, fsize, file_base, ld->header_offset);
 		ret = -4;
 		goto cleanup;
 	}
+	fsize -= skip;
+	if (fsize > ld->max_length)
+		fsize = ld->max_length;
 	printf("\nloading binary file(%s) to %08x, skip=%x, fsize=%x type=%x\n", curr->filename, ld->dladdr, skip, fsize, type);
 
 	ret = load_file(dev, ld, skip, fsize, type);
@@ -1491,8 +1501,8 @@ void init_header(struct sdp_dev *dev, struct load_desc *ld)
 		unsigned size;
 		unsigned extra_space = ((sizeof(struct old_app_header) + 4 - 1) | 0x3f) + 1;
 
-		ld->fsize += extra_space;
-		size = ld->fsize;
+		ld->max_length += extra_space;
+		size = ld->max_length;
 
 		ohdr->app_start_addr = curr->jump_addr;
 		ohdr->app_barker = APP_BARKER;
@@ -1519,8 +1529,8 @@ void init_header(struct sdp_dev *dev, struct load_desc *ld)
 		hdr->boot_data_ptr = ld->header_addr + sizeof(*hdr);
 		hdr->self_ptr = ld->header_addr;
 		bd->dest = ld->dladdr;
-		ld->fsize += extra_space;
-		bd->image_len = ld->fsize;
+		ld->max_length += extra_space;
+		bd->image_len = ld->max_length;
 		break;
 	}
 	case HDR_UBOOT:
@@ -1694,7 +1704,7 @@ int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 		struct load_desc *ld)
 {
 	int ret;
-	unsigned header_max = 0x800;
+	unsigned header_max = 0x800 + curr->load_skip;
 	unsigned header_inc = 0;
 	unsigned search_index = 0;
 	int header_cnt = 0;
@@ -1711,7 +1721,7 @@ int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 		} else {
 			if (search_index >= ARRAY_SIZE(offset_search_list))
 				break;
-			ld->header_offset = offset_search_list[search_index++];
+			ld->header_offset = curr->load_skip + offset_search_list[search_index++];
 		}
 		if ((ld->header_offset < ld->buf_offset) ||
 				(ld->header_offset - ld->buf_offset + 32 > ld->buf_cnt)) {
@@ -1821,16 +1831,16 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		goto cleanup;
 	}
 	ld.fsize = get_file_size(ld.xfile);
-	if (curr->load_size && (ld.fsize > curr->load_size))
-		ld.fsize = curr->load_size;
-	ld.buf_cnt = fread(ld.buf_start, 1, ld.buf_size, ld.xfile);
-
-	if (ld.buf_cnt < 0x20) {
-		printf("\nerror, file: %s is too small\n", curr->filename);
-		ret = -2;
+	ld.max_length = ld.fsize;
+	if (ld.max_length > curr->load_skip) {
+		ld.max_length -= curr->load_skip;
+	} else {
+		printf("error, skipping past end of file\n");
+		ret = -1;
 		goto cleanup;
 	}
-	ld.max_length = ld.fsize;
+	if (curr->load_size && (ld.max_length > curr->load_size))
+		ld.max_length = curr->load_size;
 	if (curr->dcd || curr->clear_dcd || curr->plug || (curr->jump_mode >= J_HEADER)) {
 		ret = process_header(dev, curr, &ld);
 		if (ret < 0)
@@ -1842,16 +1852,13 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		}
 	} else {
 		ld.dladdr = curr->load_addr;
-		printf("load_addr=%x\n", curr->load_addr);
-		ld.header_addr = ld.dladdr;
-		ld.header_offset = 0;
+		ld.header_addr = ld.dladdr + ld.max_length;
+		ld.header_offset = curr->load_skip + ld.max_length;
 		if (curr->jump_mode == J_ADDR) {
-			ld.header_addr = ld.dladdr + ld.fsize;
-			ld.header_offset = ld.fsize;
+			unsigned cnt = ld.max_length;
+
 			init_header(dev, &ld);
-			dbg_dump_long((unsigned char *)ld.writeable_header, ld.fsize - ld.max_length, ld.header_addr, 0);
-			ld.max_length = ld.fsize;
-			/* ld.verify = 1; */
+			dbg_dump_long((unsigned char *)ld.writeable_header, ld.max_length - cnt, ld.header_addr, 0);
 		}
 	}
 	if (ld.plugin && (!curr->plug)) {

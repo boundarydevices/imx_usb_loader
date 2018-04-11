@@ -51,6 +51,7 @@ struct sdp_work {
 	unsigned load_addr;
 	unsigned jump_addr;
 	unsigned load_size;
+	unsigned load_skip;
 };
 
 struct sdp_dev {
