@@ -17,6 +17,7 @@ vid=0x15a2 pid=0x006a file_name=vybrid_usb_work.conf
 vid=0x066f pid=0x37ff file_name=linux_gadget.conf
 vid=0x1b67 pid=0x4fff file_name=mx6_usb_sdp_spl.conf
 vid=0x0525 pid=0xb4a4 file_name=mx6_usb_sdp_spl.conf
+vid=0x1fc9 pid=0x012b file_name=mx8mq_usb_work.conf
 Simulating with vid=0x15a2 pid=0x0061
 config file <..//mx6_usb_work.conf>
 parse ..//mx6_usb_work.conf
