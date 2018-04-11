@@ -1257,6 +1257,7 @@ int load_file(struct sdp_dev *dev, struct load_desc *ld, unsigned foffset,
 	unsigned transferSize=0;
 	unsigned char *p;
 	unsigned cnt;
+	unsigned char combine_buf[1024];
 
 	do_command(dev, &dl_command, 5);
 
@@ -1267,11 +1268,34 @@ int load_file(struct sdp_dev *dev, struct load_desc *ld, unsigned foffset,
 			return err;
 	}
 
-	while (1) {
+	while (transferSize < fsize) {
+		unsigned remaining = (fsize-transferSize);
+
 		fetch_data(ld, foffset, &p, &cnt);
-		if (cnt > (int)(fsize-transferSize)) cnt = (fsize-transferSize);
-		if (cnt <= 0)
+		/* Avoid short packets, they may signal end of transfer */
+		if (cnt < sizeof(combine_buf)) {
+			unsigned next_cnt;
+
+			memcpy(combine_buf, p, cnt);
+			while (cnt < sizeof(combine_buf)) {
+				fetch_data(ld, foffset + cnt, &p, &next_cnt);
+				if (!next_cnt)
+					break;
+				if (next_cnt > sizeof(combine_buf) - cnt)
+					next_cnt = sizeof(combine_buf) - cnt;
+				memcpy(&combine_buf[cnt], p, next_cnt);
+				cnt += next_cnt;
+			}
+			p = combine_buf;
+			dbg_dump_long(p, cnt, ld->dladdr + transferSize, 0);
+		} else {
+			cnt &= -sizeof(combine_buf);	/* round down to multiple of 1024 */
+		}
+		if (cnt > remaining)
+			cnt = remaining;
+		if (!cnt)
 			break;
+		dbg_printf("%s:foffset=%x, cnt=%x, remaining=%x\n", __func__, foffset, cnt, remaining);
 		err = do_data_transfer(dev, p, cnt);
 		if (err < 0)
 			return err;
