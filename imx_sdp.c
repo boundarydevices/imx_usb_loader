@@ -52,6 +52,7 @@ int debugmode = 0;
 #define get_min(a, b) (((a) < (b)) ? (a) : (b))
 
 struct load_desc {
+	struct sdp_work *curr;
 	FILE* xfile;
 	unsigned fsize;
 	int verify;
@@ -1147,21 +1148,25 @@ void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr)
 void fetch_data(struct load_desc *ld, unsigned foffset, unsigned char **p, unsigned *cnt)
 {
 	unsigned skip = foffset - ld->header_offset;
+	unsigned buf_cnt = ld->buf_cnt;
 
-	if (skip < sizeof(ld->writeable_header)) {
+	if (ld->curr->jump_mode && skip < sizeof(ld->writeable_header)) {
 		*p = &ld->writeable_header[skip];
 		*cnt = sizeof(ld->writeable_header) - skip;
 		return;
 	}
 	skip = foffset - ld->buf_offset;
-	if (skip >= ld->buf_cnt) {
+	if (skip >= buf_cnt) {
 		fseek(ld->xfile, foffset, SEEK_SET);
 		ld->buf_offset = foffset;
-		ld->buf_cnt = fread(ld->buf_start, 1, ld->buf_size, ld->xfile);
+		buf_cnt = ld->buf_cnt = fread(ld->buf_start, 1, ld->buf_size, ld->xfile);
 		skip = 0;
+		if ((ld->header_offset > ld->buf_offset) &&
+		    (ld->header_offset < ld->buf_offset + buf_cnt))
+			buf_cnt = ld->header_offset - ld->buf_offset;
 	}
 	*p = &ld->buf_start[skip];
-	*cnt = ld->buf_cnt - skip;
+	*cnt = buf_cnt - skip;
 }
 
 int verify_memory(struct sdp_dev *dev, struct load_desc *ld, unsigned foffset,
@@ -1669,6 +1674,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 	struct load_desc ld = {};
 
 	print_sdp_work(curr);
+	ld.curr = curr;
 	ld.verify = verify;
 	ld.xfile = fopen(curr->filename, "rb" );
 	if (!ld.xfile) {
