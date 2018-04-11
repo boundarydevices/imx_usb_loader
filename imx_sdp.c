@@ -1169,10 +1169,10 @@ void fetch_data(struct load_desc *ld, unsigned foffset, unsigned char **p, unsig
 		ld->buf_offset = foffset;
 		buf_cnt = ld->buf_cnt = fread(ld->buf_start, 1, ld->buf_size, ld->xfile);
 		skip = 0;
-		if ((ld->header_offset > ld->buf_offset) &&
-		    (ld->header_offset < ld->buf_offset + buf_cnt))
-			buf_cnt = ld->header_offset - ld->buf_offset;
 	}
+	if ((foffset < ld->header_offset) &&
+	    (ld->header_offset < ld->buf_offset + buf_cnt))
+		buf_cnt = ld->header_offset - ld->buf_offset;
 	*p = &ld->buf_start[skip];
 	*cnt = buf_cnt - skip;
 }
