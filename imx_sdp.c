@@ -50,6 +50,12 @@ int debugmode = 0;
 #endif
 
 #define get_min(a, b) (((a) < (b)) ? (a) : (b))
+#define ARRAY_SIZE(x)	(sizeof(x) / sizeof(x[0]))
+
+#ifndef offsetof
+#define offsetof(TYPE, MEMBER) __builtin_offsetof(TYPE, MEMBER)
+//#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
+#endif
 
 struct load_desc {
 	struct sdp_work *curr;
@@ -67,6 +73,7 @@ struct load_desc {
 	unsigned header_offset;
 	unsigned char writeable_header[1024];
 };
+
 
 int get_val(const char** pp, int base)
 {
@@ -559,6 +566,7 @@ struct boot_data {
 
 struct ivt_header {
 #define IVT_BARKER 0x402000d1
+#define IVT2_BARKER 0x412000d1
 	uint32_t barker;
 	uint32_t start_addr;
 	uint32_t reserv1;
@@ -1182,6 +1190,7 @@ int verify_memory(struct sdp_dev *dev, struct load_desc *ld, unsigned foffset,
 		unsigned cnt;
 		unsigned char mem_buf[64];
 		int align_cnt = foffset & 0x3f;
+		unsigned offset = foffset;
 
 		fetch_data(ld, foffset, &p, &cnt);
 		if (align_cnt) {
@@ -1208,7 +1217,6 @@ int verify_memory(struct sdp_dev *dev, struct load_desc *ld, unsigned foffset,
 			}
 			if (memcmp(p, mem_buf, request)) {
 				unsigned char * m = mem_buf;
-				unsigned offset = foffset;
 				if (!mismatch)
 					printf("!!!!mismatch\n");
 				mismatch++;
@@ -1233,6 +1241,7 @@ int verify_memory(struct sdp_dev *dev, struct load_desc *ld, unsigned foffset,
 					return -1;
 			}
 			p += request;
+			offset += request;
 			addr += request;
 			cnt -= request;
 			verified += request;
@@ -1398,6 +1407,7 @@ int load_file_from_desc(struct sdp_dev *dev, struct sdp_work *curr,
 		ld->max_length -= (file_base - ld->dladdr);
 		ld->dladdr = file_base;
 	}
+	dbg_printf("skip=%x cnt=%x dladdr=%x file_base=%x fsize=%x max_length=%x\n", skip, ld->buf_cnt, ld->dladdr, file_base, ld->fsize, ld->max_length);
 	skip = ld->dladdr - file_base;
 
 	fsize = ld->fsize - skip;
@@ -1454,7 +1464,7 @@ int is_header(struct sdp_dev *dev, unsigned char *p)
 	case HDR_MX53:
 	{
 		struct ivt_header *hdr = (struct ivt_header *)p;
-		if (hdr->barker == IVT_BARKER)
+		if ((hdr->barker == IVT_BARKER) || (hdr->barker == IVT2_BARKER))
 			return 1;
 	}
 	case HDR_UBOOT:
@@ -1465,6 +1475,59 @@ int is_header(struct sdp_dev *dev, unsigned char *p)
 	}
 	}
 	return 0;
+}
+
+void init_header(struct sdp_dev *dev, struct load_desc *ld)
+{
+	struct sdp_work *curr = ld->curr;
+
+	memset(ld->writeable_header, 0, sizeof(ld->writeable_header));
+
+	switch (dev->header_type) {
+	case HDR_MX51:
+	{
+		struct old_app_header *ohdr = (struct old_app_header *)ld->writeable_header;
+		unsigned char *p = (unsigned char *)(ohdr + 1);
+		unsigned size;
+		unsigned extra_space = ((sizeof(struct old_app_header) + 4 - 1) | 0x3f) + 1;
+
+		ld->fsize += extra_space;
+		size = ld->fsize;
+
+		ohdr->app_start_addr = curr->jump_addr;
+		ohdr->app_barker = APP_BARKER;
+		ohdr->dcd_ptr_ptr = ld->header_addr + offsetof(struct old_app_header, dcd_ptr);
+		ohdr->app_dest_ptr = ld->dladdr;
+
+		*p++ = (unsigned char)size;
+		size >>= 8;
+		*p++ = (unsigned char)size;
+		size >>= 8;
+		*p++ = (unsigned char)size;
+		size >>= 8;
+		*p = (unsigned char)size;
+		break;
+	}
+	case HDR_MX53:
+	{
+		struct ivt_header *hdr = (struct ivt_header *)ld->writeable_header;
+		struct boot_data *bd = (struct boot_data *)(hdr+1);
+		unsigned extra_space = ((sizeof(struct ivt_header) + sizeof(struct boot_data) - 1) | 0x3f) + 1;
+
+		hdr->barker = IVT_BARKER;
+		hdr->start_addr = curr->jump_addr;
+		hdr->boot_data_ptr = ld->header_addr + sizeof(*hdr);
+		hdr->self_ptr = ld->header_addr;
+		bd->dest = ld->dladdr;
+		ld->fsize += extra_space;
+		bd->image_len = ld->fsize;
+		break;
+	}
+	case HDR_UBOOT:
+	{
+		break;
+	}
+	}
 }
 
 int perform_dcd(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start, unsigned cnt)
@@ -1522,11 +1585,6 @@ int clear_dcd_ptr(struct sdp_dev *dev, unsigned char *p)
 	}
 	return 0;
 }
-
-#ifndef offsetof
-#define offsetof(TYPE, MEMBER) __builtin_offsetof(TYPE, MEMBER)
-//#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
-#endif
 
 int get_dl_start(struct sdp_dev *dev, unsigned char *p,
 	struct load_desc *ld, unsigned int clear_boot_data)
@@ -1630,64 +1688,114 @@ int do_status(struct sdp_dev *dev)
 	return 0;
 }
 
+unsigned offset_search_list[] = {0, 0x400, 0x8400};
+
 int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 		struct load_desc *ld)
 {
 	int ret;
 	unsigned header_max = 0x800;
-	unsigned header_inc = 0x400;
+	unsigned header_inc = 0;
+	unsigned search_index = 0;
 	int header_cnt = 0;
-	unsigned char *p = ld->buf_start;
+	unsigned char *p;
+	int hdmi_ivt = 0;
+	int save_verify;
+	int found = 0;
 
-	while (ld->header_offset < header_max) {
-//		printf("header_offset=%x\n", ld->header_offset);
-		if (is_header(dev, p)) {
-			memcpy(ld->writeable_header, p,
-					sizeof(ld->writeable_header));
-			ret = get_dl_start(dev, p, ld, curr->clear_boot_data);
+	while (1) {
+		if (header_inc) {
+			ld->header_offset += header_inc;
+			if (ld->header_offset >= header_max)
+				break;
+		} else {
+			if (search_index >= ARRAY_SIZE(offset_search_list))
+				break;
+			ld->header_offset = offset_search_list[search_index++];
+		}
+		if ((ld->header_offset < ld->buf_offset) ||
+				(ld->header_offset - ld->buf_offset + 32 > ld->buf_cnt)) {
+			fseek(ld->xfile, ld->header_offset, SEEK_SET);
+			ld->buf_offset = ld->header_offset;
+			ld->buf_cnt = fread(ld->buf_start, 1, ld->buf_size, ld->xfile);
+			if (ld->buf_cnt < 32)
+				break;
+		}
+		p = ld->buf_start + ld->header_offset - ld->buf_offset;
+		if (!is_header(dev, p))
+			continue;
+		dbg_printf("%s: header_offset=%x, %02x%02x%02x%02x\n", __func__,
+			ld->header_offset, p[3], p[2], p[1], p[0]);
+
+		memcpy(ld->writeable_header, p,
+				sizeof(ld->writeable_header));
+		ret = get_dl_start(dev, p, ld, curr->clear_boot_data);
+		if (ret < 0) {
+			printf("!!get_dl_start returned %i\n", ret);
+			return ret;
+		}
+		if (curr->dcd) {
+			ret = perform_dcd(dev, p, ld->buf_start, ld->buf_cnt);
+#if 1
+			clear_dcd_ptr(dev, ld->writeable_header);
+#endif
 			if (ret < 0) {
-				printf("!!get_dl_start returned %i\n", ret);
+				printf("!!perform_dcd returned %i\n", ret);
 				return ret;
 			}
-			if (curr->dcd) {
-				ret = perform_dcd(dev, p, ld->buf_start, ld->buf_cnt);
-#if 1
-				clear_dcd_ptr(dev, ld->writeable_header);
-#endif
-				if (ret < 0) {
-					printf("!!perform_dcd returned %i\n", ret);
-					return ret;
-				}
-				curr->dcd = 0;
-				if ((!curr->jump_mode) && (!curr->plug)) {
-					printf("!!dcd done, nothing else requested\n");
-					return 0;
-				}
-			}
-			if (curr->clear_dcd) {
-				ret = clear_dcd_ptr(dev, ld->writeable_header);
-				if (ret < 0) {
-					printf("!!clear_dcd returned %i\n", ret);
-					return ret;
-				}
-			}
-			if (ld->plugin && (!curr->plug) && (!header_cnt)) {
-				header_cnt++;
-				header_max = ld->header_offset + ld->max_length + 0x400;
-				if (header_max > (unsigned)(ld->buf_cnt - 32))
-					header_max = (unsigned)(ld->buf_cnt - 32);
-				printf("header_max=%x\n", header_max);
-				header_inc = 4;
-			} else {
-				if (!ld->plugin)
-					curr->plug = 0;
-				break;
+			curr->dcd = 0;
+			if ((!curr->jump_mode) && (!curr->plug)) {
+				printf("!!dcd done, nothing else requested\n");
+				return 0;
 			}
 		}
-		ld->header_offset += header_inc;
-		p += header_inc;
+		if (curr->clear_dcd) {
+			ret = clear_dcd_ptr(dev, ld->writeable_header);
+			if (ret < 0) {
+				printf("!!clear_dcd returned %i\n", ret);
+				return ret;
+			}
+		}
+		if (ld->plugin == 2) {
+			if (!hdmi_ivt) {
+				hdmi_ivt++;
+				header_inc = 0x1c00 - 0x1000 + ld->max_length;
+				header_max = ld->header_offset + header_inc + 0x400;
+				continue;
+			}
+			if (curr->plug) {
+				save_verify = ld->verify;
+				/* Trying to verify hdmi firmware gives errors! */
+				ld->verify = 0;
+				ret = load_file_from_desc(dev, curr, ld);
+				ld->verify = save_verify;
+			}
+			header_inc = ld->dladdr - ld->header_addr + ld->max_length + 0x400;
+			header_max = ld->header_offset + header_inc + 0x400;
+			continue;
+		}
+		if (ld->plugin && (!curr->plug) && (!header_cnt)) {
+			header_cnt++;
+			header_max = ld->header_offset + ld->max_length + 0x400;
+			printf("header_max=%x\n", header_max);
+			header_inc = 4;
+		} else {
+			if (!ld->plugin)
+				curr->plug = 0;
+			if (curr->jump_mode == J_HEADER2) {
+				if (!found) {
+					found++;
+					ld->header_offset += ld->dladdr - ld->header_addr + ld->max_length;
+					header_inc = 0x400;
+					header_max = ld->header_offset + 0x400 * 128;
+					continue;
+				}
+			}
+			return 0;
+		}
 	}
-	return 0;
+	printf("header not found %x:%x, %x\n", ld->header_offset, *(unsigned int *)p, ld->buf_cnt);
+	return -EINVAL;
 }
 
 #define MAX_IN_LENGTH 100 // max length for user input strings
@@ -1737,6 +1845,14 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		printf("load_addr=%x\n", curr->load_addr);
 		ld.header_addr = ld.dladdr;
 		ld.header_offset = 0;
+		if (curr->jump_mode == J_ADDR) {
+			ld.header_addr = ld.dladdr + ld.fsize;
+			ld.header_offset = ld.fsize;
+			init_header(dev, &ld);
+			dbg_dump_long((unsigned char *)ld.writeable_header, ld.fsize - ld.max_length, ld.header_addr, 0);
+			ld.max_length = ld.fsize;
+			/* ld.verify = 1; */
+		}
 	}
 	if (ld.plugin && (!curr->plug)) {
 		printf("Only plugin header found\n");

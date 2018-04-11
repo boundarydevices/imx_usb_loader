@@ -5,11 +5,14 @@ extern int debugmode;
 
 #ifndef WIN32
 #define dbg_printf(fmt, args...)	do{ if(debugmode) fprintf(stderr, fmt, ## args); } while(0)
+#define dbg_dump_long(src, cnt, addr, skip) do{ if(debugmode) dump_long(src, cnt, addr, skip); } while(0)
 #else
 
 #ifdef DEBUG
 #define dbg_printf(fmt, ...)	fprintf(stderr, fmt, __VA_ARGS__)
+#define dbg_dump_long(src, cnt, addr, skip) dump_long(src, cnt, addr, skip)
 #else
+#define dbg_dump_long(src, cnt, addr, skip)
 #define dbg_printf(fmt, ...)    /* Don't do anything in release builds */
 #endif
 #endif
