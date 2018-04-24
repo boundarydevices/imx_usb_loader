@@ -1858,6 +1858,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 			unsigned cnt = ld.max_length;
 
 			init_header(dev, &ld);
+			/* If the header is at EOF, fsize needs increased */
 			ld.fsize += ld.max_length - cnt;
 			dbg_dump_long((unsigned char *)ld.writeable_header, ld.max_length - cnt, ld.header_addr, 0);
 		}
