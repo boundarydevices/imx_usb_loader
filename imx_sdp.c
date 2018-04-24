@@ -336,7 +336,7 @@ static int do_data_transfer(struct sdp_dev *dev, unsigned char *buf, int len)
 	return err;
 }
 
-static int write_dcd(struct sdp_dev *dev, struct flash_header_v2 *hdr, unsigned char *file_start, unsigned cnt)
+static int write_dcd(struct sdp_dev *dev, unsigned char *dcd, unsigned char *file_start, unsigned cnt)
 {
 	struct sdp_command dl_command = {
 		.cmd = SDP_WRITE_DCD,
@@ -347,22 +347,11 @@ static int write_dcd(struct sdp_dev *dev, struct flash_header_v2 *hdr, unsigned 
 		.rsvd = 0};
 
 	int length;
-#define cvt_dest_to_src		(((unsigned char *)hdr) - hdr->self_ptr)
-	unsigned char* dcd, *dcd_end;
+	unsigned char *dcd_end;
 	unsigned char* file_end = file_start + cnt;
 
 	int err;
 	unsigned transferSize=0;
-
-	if (!hdr->dcd_ptr) {
-		printf("No dcd table, barker=%x\n", hdr->barker);
-		return 0;	//nothing to do
-	}
-	dcd = hdr->dcd_ptr + cvt_dest_to_src;
-	if ((dcd < file_start) || ((dcd + 4) > file_end)) {
-		printf("bad dcd_ptr %08x\n", hdr->dcd_ptr);
-		return -1;
-	}
 
 	if ((dcd[0] != 0xd2) || (dcd[3] != 0x40)) {
 		printf("Unknown tag\n");
@@ -422,23 +411,13 @@ static int write_dcd(struct sdp_dev *dev, struct flash_header_v2 *hdr, unsigned 
 	return transferSize;
 }
 
-static int write_dcd_table_ivt(struct sdp_dev *dev, struct flash_header_v2 *hdr, unsigned char *file_start, unsigned cnt)
+static int write_dcd_table_ivt(struct sdp_dev *dev, unsigned char *dcd, unsigned char *file_start, unsigned cnt)
 {
 	unsigned char *dcd_end;
 	unsigned m_length;
-#define cvt_dest_to_src		(((unsigned char *)hdr) - hdr->self_ptr)
-	unsigned char* dcd;
 	unsigned char* file_end = file_start + cnt;
 	int err = 0;
-	if (!hdr->dcd_ptr) {
-		printf("No dcd table, barker=%x\n", hdr->barker);
-		return 0;	//nothing to do
-	}
-	dcd = hdr->dcd_ptr + cvt_dest_to_src;
-	if ((dcd < file_start) || ((dcd + 4) > file_end)) {
-		printf("bad dcd_ptr %08x\n", hdr->dcd_ptr);
-		return -1;
-	}
+
 	m_length = (dcd[1] << 8) + dcd[2];
 	printf("main dcd length %x\n", m_length);
 	if ((dcd[0] != 0xd2) || (dcd[3] != 0x40)) {
@@ -1073,6 +1052,12 @@ void init_header(struct sdp_dev *dev, struct load_desc *ld)
 	}
 }
 
+/*
+ * Apply/load DCD table for v1 and v2 flash headers
+ *
+ * Returns 0 if successful or if there was no DCD table to download
+ * Returns -1 if the DCD table is invalid
+ */
 int perform_dcd(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start, unsigned cnt)
 {
 	int ret = 0;
@@ -1088,12 +1073,27 @@ int perform_dcd(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start
 	}
 	case HDR_MX53:
 	{
+#define cvt_dest_to_src		(((unsigned char *)hdr) - hdr->self_ptr)
 		struct flash_header_v2 *hdr = (struct flash_header_v2 *)p;
+		unsigned char* file_end = file_start + cnt;
+		unsigned char *dcd;
+
+		if (!hdr->dcd_ptr) {
+			printf("No dcd table, barker=%x\n", hdr->barker);
+			return 0;	//nothing to do
+		}
+
+		dcd = hdr->dcd_ptr + cvt_dest_to_src;
+		if ((dcd < file_start) || ((dcd + 4) > file_end)) {
+			printf("bad dcd_ptr %08x\n", hdr->dcd_ptr);
+			return -1;
+		}
+
 		if (dev->mode == MODE_HID) {
-			ret = write_dcd(dev, hdr, file_start, cnt);
+			ret = write_dcd(dev, dcd, file_start, cnt);
 		} else {
 			// For processors that don't support the WRITE_DCD command (i.MX5x)
-			ret = write_dcd_table_ivt(dev, hdr, file_start, cnt);
+			ret = write_dcd_table_ivt(dev, dcd, file_start, cnt);
 		}
 		dbg_printf("dcd_ptr=0x%08x\n", hdr->dcd_ptr);
 		if (ret < 0)
