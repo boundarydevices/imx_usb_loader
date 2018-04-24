@@ -38,6 +38,7 @@
 #include "portable.h"
 #include "imx_sdp.h"
 #include "imx_loader.h"
+#include "imx_loader_config.h"
 
 struct mach_id;
 struct mach_id {
