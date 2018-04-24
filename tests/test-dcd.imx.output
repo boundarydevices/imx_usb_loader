@@ -21,6 +21,12 @@ vid=0x1fc9 pid=0x012b file_name=mx8mq_usb_work.conf
 Simulating with vid=0x15a2 pid=0x0061
 config file <..//mx6_usb_work.conf>
 parse ..//mx6_usb_work.conf
+report=1, cnt=16
+00000000: 05 05 00 00  00 00 00 00  00 00 00 00  00 00 00 00
+cmd: 0505
+report=3, cnt=64
+HAB security state: development mode (0x56787856)
+report=4, cnt=64
 == work item
 filename test-dcd.imx
 load_size 0 bytes

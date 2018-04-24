@@ -42,11 +42,14 @@ int debugmode = 0;
 #ifdef __GNUC__
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 #define BE32(x) __builtin_bswap32(x)
+#define BE16(x) __builtin_bswap16(x)
 #else
 #define BE32(x) x
+#define BE16(x) x
 #endif
 #elif _MSC_VER // assume little endian...
 #define BE32(x) _byteswap_ulong(x)
+#define BE16(x) _byteswap_ushort(x)
 #endif
 
 #define get_min(a, b) (((a) < (b)) ? (a) : (b))
@@ -75,473 +78,6 @@ struct load_desc {
 };
 
 
-int get_val(const char** pp, int base)
-{
-	int val = 0;
-	const char *p = *pp;
-	while (*p==' ') p++;
-	if (*p=='0') {
-		p++;
-		if ((*p=='x')||(*p=='X')) {
-			p++;
-			base = 16;
-		}
-	}
-	while (*p) {
-		char c = *p++;
-		if ((c >= '0')&&(c <= '9')) {
-			c -= '0';
-		} else {
-			c &= ~('a'-'A');
-			if ((c >= 'A')&&(c <= 'F')) c -= ('A'-10);
-			else {
-				p--;
-				break;
-			}
-		}
-		if (c >= base) {
-			printf("Syntax error: %s\n", p-1);
-			val = -1;
-			break;
-		}
-		val = (val * base) + c;
-	}
-	while (*p==' ') p++;
-	*pp = p;
-	return val;
-}
-
-const char *move_string(char *dest, const char *src, unsigned cnt)
-{
-	unsigned i = 0;
-	while (i < cnt) {
-		char c = *src++;
-		if ((!c) || (c == ' ') || (c == 0x0d) || (c == '\n') ||
-		    (c == '#') || (c == ':') || (c == ',')) {
-			src--;
-			break;
-		}
-		dest[i++] = c;
-	}
-	dest[i] = '\0';
-	return src;
-}
-
-char const *get_base_path(char const *argv0)
-{
-	static char base_path[PATH_MAX];
-	char *e;
-
-	strncpy(base_path, argv0, sizeof(base_path));
-	e = strrchr(base_path, PATH_SEPARATOR);
-#ifdef  __unix__
-	if (!e) {
-		readlink("/proc/self/exe", base_path,sizeof(base_path));
-		e = strrchr(base_path, PATH_SEPARATOR);
-	}
-#endif
-	if (e) {
-		dbg_printf( "trailing slash == %p:%s\n", e, e);
-		e[1] = 0;
-	} else {
-		dbg_printf( "no trailing slash\n");
-	}
-
-	return base_path;
-}
-
-char const *get_global_conf_path()
-{
-#ifdef WIN32
-	static char conf[PATH_MAX];
-	static char sep = PATH_SEPARATOR;
-	const char *subdir = "imx_loader";
-	char const *progdata = getenv("ProgramData");
-
-	strncpy(conf, progdata, sizeof(conf));
-	strncat(conf, &sep, sizeof(conf));
-	strncat(conf, subdir, sizeof(conf));
-	return conf;
-#else
-	char const *global_conf_path = SYSCONFDIR "/imx-loader.d/";
-	return global_conf_path;
-#endif
-}
-
-char const *conf_path_ok(char const *conf_path, char const *conf_file)
-{
-	static char conf[PATH_MAX];
-	static char sep = PATH_SEPARATOR;
-
-	strncpy(conf, conf_path, sizeof(conf));
-	strncat(conf, &sep, sizeof(conf) - strlen(conf) - 1);
-	strncat(conf, conf_file, sizeof(conf) - strlen(conf) - 1);
-	if (access(conf, R_OK) != -1) {
-		printf("config file <%s>\n", conf);
-		return conf;
-	}
-	return NULL;
-}
-
-char const *conf_file_name(char const *file, char const *base_path, char const *conf_path)
-{
-	char const *conf;
-	char cwd[PATH_MAX];
-
-	// First priority, conf path... (either -c, binary or /etc/imx-loader.d/)
-	dbg_printf("checking with conf_path %s\n", conf_path);
-	conf = conf_path_ok(conf_path, file);
-	if (conf != NULL)
-		return conf;
-
-	// Second priority, base path, relative path of binary...
-	dbg_printf("checking with base_path %s\n", base_path);
-	conf = conf_path_ok(base_path, file);
-	if (conf != NULL)
-		return conf;
-
-	// Third priority, working directory...
-	getcwd(cwd, PATH_MAX);
-	dbg_printf("checking with cwd %s\n", cwd);
-	conf = conf_path_ok(cwd, file);
-	if (conf != NULL)
-		return conf;
-
-	printf("%s not found\n", file);
-	return NULL;
-}
-
-char const *skip(const char *p, char c)
-{
-	while (*p==' ') p++;
-	if (*p == c) {
-		p++;
-	}
-	while (*p==' ') p++;
-	return p;
-}
-
-int end_of_line(const char *p)
-{
-	while (*p == ' ') p++;
-	if ((!p[0]) || (*p == '#') || (*p == '\n') || (*p == '\r'))
-		return 1;
-	return 0;
-}
-
-
-void parse_mem_work(struct sdp_work *curr, const char *filename, const char *p)
-{
-	struct mem_work *wp;
-	struct mem_work **link;
-	struct mem_work w;
-	unsigned int i;
-	const char *start = p;
-
-	p = skip(p,':');
-	memset(&w, 0, sizeof(w));
-	if (strncmp(p, "read", 4) == 0) {
-		p += 4;
-		p = skip(p,',');
-		i = MEM_TYPE_READ;
-	} else if (strncmp(p, "write", 5) == 0) {
-		p += 5;
-		p = skip(p,',');
-		i = MEM_TYPE_WRITE;
-	} else if (strncmp(p, "modify", 6) == 0) {
-		p += 6;
-		p = skip(p,',');
-		i = MEM_TYPE_MODIFY;
-	} else {
-		printf("%s: syntax error: %s {%s}\n", filename, p, start);
-	}
-	w.type = i;
-	i = 0;
-	for (;;) {
-		w.vals[i] = get_val(&p, 16);
-		if (i >= w.type)
-			break;
-		p = skip(p,',');
-		if ((*p == 0) || (*p == '#')) {
-			printf("%s: missing argment: %s {%s}\n", filename, p, start);
-			return;
-		}
-		i++;
-	}
-	if (!end_of_line(p)) {
-		printf("%s: syntax error: %s {%s}\n", filename, p, start);
-		return;
-	}
-	wp = (struct mem_work *)malloc(sizeof(struct mem_work));
-	if (!wp)
-		return;
-	link = &curr->mem;
-	while (*link)
-		link = &(*link)->next;
-	*wp = w;
-	*link = wp;
-}
-
-void parse_file_work(struct sdp_work *curr, const char *filename, const char *p)
-{
-	const char *start = p;
-
-	p = move_string(curr->filename, p, sizeof(curr->filename) - 1);
-	p = skip(p,':');
-	for (;;) {
-		const char *q = p;
-		if ((!*p) || (*p == '#')  || (*p == '\n') || (*p == 0x0d))
-			break;
-		if (strncmp(p, "dcd", 3) == 0) {
-			p += 3;
-			p = skip(p,',');
-			curr->dcd = 1;
-		}
-		if (strncmp(p, "clear_dcd", 9) == 0) {
-			p += 9;
-			p = skip(p,',');
-			curr->clear_dcd = 1;
-//			printf("clear_dcd\n");
-		}
-		if (strncmp(p, "clear_boot_data", 15) == 0) {
-			p += 15;
-			p = skip(p,',');
-			curr->clear_boot_data = 1;
-//			printf("clear_dcd\n");
-		}
-		if (strncmp(p, "plug", 4) == 0) {
-			p += 4;
-			p = skip(p,',');
-			curr->plug = 1;
-//			printf("plug\n");
-		}
-		if (strncmp(p, "load", 4) == 0) {
-			p += 4;
-			curr->load_addr = get_val(&p, 16);
-			p = skip(p,',');
-		}
-		if (strncmp(p, "size", 4) == 0) {
-			p += 4;
-			curr->load_size = get_val(&p, 16);
-			p = skip(p,',');
-		}
-		if (strncmp(p, "skip", 4) == 0) {
-			p += 4;
-			curr->load_skip = get_val(&p, 16);
-			p = skip(p,',');
-		}
-		if (strncmp(p, "jump", 4) == 0) {
-			p += 4;
-			curr->jump_mode = J_ADDR;
-			curr->jump_addr = get_val(&p, 16);
-			if (strncmp(p, "header2", 7) == 0) {
-				p += 7;
-				p = skip(p,',');
-				curr->jump_mode = J_HEADER2;
-			} else if (strncmp(p, "header", 6) == 0) {
-				p += 6;
-				p = skip(p,',');
-				curr->jump_mode = J_HEADER;
-			}
-			p = skip(p,',');
-//			printf("jump\n");
-		}
-		if (q == p) {
-			printf("%s: syntax error: %s {%s}\n", filename, p, start);
-			break;
-		}
-	}
-}
-
-/*
- * #hid/bulk,[old_header,]max packet size, {ram start, ram size}(repeat valid ram areas)
- *hid,1024,0x10000000,1G,0x00907000,0x31000
- *
- */
-void parse_transfer_type(struct sdp_dev *usb, const char *filename, const char *p)
-{
-	int i;
-
-	if (strncmp(p, "hid", 3) == 0) {
-		p += 3;
-		p = skip(p,',');
-		usb->mode = MODE_HID;
-	} else if (strncmp(p, "bulk", 4) == 0) {
-		p += 4;
-		p = skip(p,',');
-		usb->mode = MODE_BULK;
-	} else {
-		printf("%s: hid/bulk expected\n", filename);
-	}
-	if (strncmp(p, "old_header", 10) == 0) {
-		p += 10;
-		p = skip(p,',');
-		usb->header_type = HDR_MX51;
-	} else if (strncmp(p, "uboot_header", 12) == 0) {
-		p += 12;
-		p = skip(p,',');
-		usb->header_type = HDR_UBOOT;
-	} else {
-		usb->header_type = HDR_MX53;
-	}
-	usb->max_transfer = get_val(&p, 10);
-	p = skip(p,',');
-	usb->dcd_addr = get_val(&p, 16);
-	p = skip(p,',');
-	for (i = 0; i < 8; i++) {
-		usb->ram[i].start = get_val(&p, 10);
-		p = skip(p,',');
-		usb->ram[i].size = get_val(&p, 10);
-		if ((*p == 'G') || (*p == 'g')) {
-			usb->ram[i].size <<= 30;
-			p++;
-		} else if ((*p == 'M') || (*p == 'm')) {
-			usb->ram[i].size <<= 20;
-			p++;
-		} else if ((*p == 'K') || (*p == 'k')) {
-			usb->ram[i].size <<= 10;
-			p++;
-		}
-		p = skip(p,',');
-		if ((*p == '#') || (*p == '\n') || (!*p))
-			break;
-	}
-}
-
-struct sdp_dev *parse_conf(const char *filename)
-{
-	char line[512];
-	FILE *xfile;
-	const char *p;
-	struct sdp_work *tail = NULL;
-	struct sdp_work *curr = NULL;
-	struct sdp_dev *usb = (struct sdp_dev *)malloc(sizeof(struct sdp_dev));
-	if (!usb)
-		return NULL;
-	memset(usb, 0, sizeof(struct sdp_dev));
-
-	xfile = fopen(filename, "rb" );
-	if (!xfile) {
-		printf("Could not open file: {%s}\n", filename);
-		free(usb);
-		return NULL;
-	}
-	printf("parse %s\n", filename);
-
-	while (fgets(line, sizeof(line), xfile) != NULL) {
-		p = line;
-		while (*p==' ') p++;
-		if (p[0] == '#')
-			continue;
-		if (p[0] == 0)
-			continue;
-		if (p[0] == '\n')
-			continue;
-		if (p[0] == 0x0d)
-			continue;
-		if (!usb->name[0]) {
-			p = move_string(usb->name, p, sizeof(usb->name) - 1);
-			continue;
-		}
-		if (!usb->max_transfer) {
-			parse_transfer_type(usb, filename, p);
-			continue;
-		}
-		/*
-		 * #file:dcd,plug,load nnn,jump [nnn/header/header2]
-		 */
-		if (!curr) {
-			curr = (struct sdp_work *)malloc(sizeof(struct sdp_work));
-			if (!curr)
-				break;
-			memset(curr, 0, sizeof(struct sdp_work));
-			if (!usb->work)
-				usb->work = curr;
-			if (tail)
-				tail->next = curr;
-			tail = curr;
-			curr->load_addr = usb->ram[0].start + 0x03f00000;	/* default */
-		}
-
-		if (p[0] == ':') {
-			parse_mem_work(curr, filename, p);
-		} else {
-			parse_file_work(curr, filename, p);
-			curr = NULL;
-		}
-	}
-	return usb;
-}
-
-struct sdp_work *parse_cmd_args(int argc, char * const *argv)
-{
-	int i = 0;
-	struct sdp_work *prev = NULL;
-	struct sdp_work *w = NULL;
-	struct sdp_work *head = NULL;
-
-	while (argc > i) {
-		const char *p = argv[i];
-		if (*p == '-') {
-			char c;
-			p++;
-			c = *p++;
-			if (w == NULL) {
-				printf("specify file first\n");
-				exit(1);
-			}
-			if (!*p) {
-				i++;
-				p = argv[i];
-			}
-			if (c == 's') {
-				w->load_size = get_val(&p, 10);
-				if (!w->load_addr)
-					w->load_addr = 0x10800000;
-				w->plug = 0;
-				w->jump_mode = 0;
-				i++;
-				continue;
-			}
-			if (c == 'l') {
-				w->load_addr = get_val(&p, 16);
-				w->plug = 0;
-				w->jump_mode = 0;
-				i++;
-				continue;
-			}
-			fprintf(stderr, "Unknown option %s\n", p);
-			exit(1);
-		}
-
-		// Initialize work structure..
-		w = malloc(sizeof(struct sdp_work));
-		memset(w, 0, sizeof(struct sdp_work));
-		strncpy(w->filename, argv[i], sizeof(w->filename) - 1);
-		if (access(w->filename, R_OK) == -1) {
-			fprintf(stderr, "cannot read from file %s\n",
-					w->filename);
-			exit(1);
-		}
-
-
-		if (head == NULL) {
-			// Special settings for first work...
-			w->dcd = 1;
-			w->plug = 1;
-			w->jump_mode = J_HEADER;
-			head = w;
-		}
-
-		if (prev != NULL)
-			prev->next = w;
-		prev = w;
-
-		i++;
-	}
-
-	return head;
-}
 
 void print_sdp_work(struct sdp_work *curr)
 {
@@ -574,23 +110,52 @@ struct boot_data {
 	uint32_t plugin;
 };
 
+/* Command tags and parameters */
+#define IVT_HEADER_TAG			0xD1
+#define IVT_VERSION			0x40
+#define IVT_VERSION_IMX8M		0x41
+#define DCD_HEADER_TAG			0xD2
+#define DCD_VERSION			0x40
+#define DCD_VERSION_IMX8M		0x41
+
+#pragma pack (1)
 struct ivt_header {
-#define IVT_BARKER 0x402000d1
-#define IVT2_BARKER 0x412000d1
-	uint32_t barker;
+        uint8_t tag;
+        uint16_t length;
+        uint8_t version;
+};
+#pragma pack ()
+
+struct flash_header_v2 {
+	struct ivt_header header;
 	uint32_t start_addr;
 	uint32_t reserv1;
 	uint32_t dcd_ptr;
 	uint32_t boot_data_ptr;		/* struct boot_data * */
-	uint32_t self_ptr;		/* struct ivt_header *, this - boot_data.start = offset linked at */
+	uint32_t self_ptr;		/* struct flash_header_v2 *, this - boot_data.start = offset linked at */
 	uint32_t app_code_csf;
 	uint32_t reserv2;
 };
 
+#pragma pack (1)
+struct write_dcd_command {
+	uint8_t tag;
+	uint16_t length;
+	uint8_t param;
+};
+#pragma pack ()
+
+struct dcd_v2 {
+	struct ivt_header header;
+	struct write_dcd_command write_dcd_command;
+	unsigned char *addr_data;
+};
+
+
 /*
  * MX51 header type
  */
-struct old_app_header {
+struct flash_header_v1 {
 	uint32_t app_start_addr;
 #define APP_BARKER	0xb1
 #define DCD_BARKER	0xb17219e9
@@ -803,7 +368,7 @@ static int do_data_transfer(struct sdp_dev *dev, unsigned char *buf, int len)
 	return err;
 }
 
-static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char *file_start, unsigned cnt)
+static int write_dcd(struct sdp_dev *dev, struct dcd_v2 *dcd)
 {
 	struct sdp_command dl_command = {
 		.cmd = SDP_WRITE_DCD,
@@ -813,55 +378,24 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 		.data = 0,
 		.rsvd = 0};
 
-	int length;
-#define cvt_dest_to_src		(((unsigned char *)hdr) - hdr->self_ptr)
-	unsigned char* dcd, *dcd_end;
-	unsigned char* file_end = file_start + cnt;
+	int length = BE16(dcd->header.length);
 
 	int err;
 	unsigned transferSize=0;
-
-	if (!hdr->dcd_ptr) {
-		printf("No dcd table, barker=%x\n", hdr->barker);
-		return 0;	//nothing to do
-	}
-	dcd = hdr->dcd_ptr + cvt_dest_to_src;
-	if ((dcd < file_start) || ((dcd + 4) > file_end)) {
-		printf("bad dcd_ptr %08x\n", hdr->dcd_ptr);
-		return -1;
-	}
-
-	if ((dcd[0] != 0xd2) || (dcd[3] != 0x40)) {
-		printf("Unknown tag\n");
-		return -1;
-	}
-
-	length = (dcd[1] << 8) + dcd[2];
 
 	if (length > HAB_MAX_DCD_SIZE) {
 		printf("DCD is too big (%d bytes)\n", length);
 		return -1;
 	}
 
-	if (length == 0) {
-		printf("No DCD table, skip\n");
-		return 0;
-	}
-
 	dl_command.cnt = BE32(length);
-
-	dcd_end = dcd + length;
-	if (dcd_end > file_end) {
-		printf("bad dcd length %08x\n", length);
-		return -1;
-	}
 
 	printf("loading DCD table @%#x\n", dev->dcd_addr);
 	err = do_command(dev, &dl_command, 5);
 	if (err)
 		return err;
 
-	err = do_data_transfer(dev, dcd, length);
+	err = do_data_transfer(dev, (unsigned char *)dcd, length);
 	if (err < 0)
 		return err;
 	transferSize = err;
@@ -889,35 +423,16 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 	return transferSize;
 }
 
-static int write_dcd_table_ivt(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char *file_start, unsigned cnt)
+static int write_dcd_table_ivt(struct sdp_dev *dev, struct dcd_v2 *dcdhdr)
 {
+	int length = BE16(dcdhdr->header.length);
+	unsigned char *dcd = (unsigned char *)&dcdhdr->write_dcd_command;
 	unsigned char *dcd_end;
-	unsigned m_length;
-#define cvt_dest_to_src		(((unsigned char *)hdr) - hdr->self_ptr)
-	unsigned char* dcd;
-	unsigned char* file_end = file_start + cnt;
 	int err = 0;
-	if (!hdr->dcd_ptr) {
-		printf("No dcd table, barker=%x\n", hdr->barker);
-		return 0;	//nothing to do
-	}
-	dcd = hdr->dcd_ptr + cvt_dest_to_src;
-	if ((dcd < file_start) || ((dcd + 4) > file_end)) {
-		printf("bad dcd_ptr %08x\n", hdr->dcd_ptr);
-		return -1;
-	}
-	m_length = (dcd[1] << 8) + dcd[2];
-	printf("main dcd length %x\n", m_length);
-	if ((dcd[0] != 0xd2) || (dcd[3] != 0x40)) {
-		printf("Unknown tag\n");
-		return -1;
-	}
-	dcd_end = dcd + m_length;
-	if (dcd_end > file_end) {
-		printf("bad dcd length %08x\n", m_length);
-		return -1;
-	}
-	dcd += 4;
+
+	printf("main dcd length %x\n", length);
+	dcd_end = ((unsigned char *)dcdhdr) + length;
+
 	while (dcd < dcd_end) {
 		unsigned s_length = (dcd[1] << 8) + dcd[2];
 		unsigned sub_tag = (dcd[0] << 24) + (dcd[3] & 0x7);
@@ -1002,7 +517,7 @@ static int write_dcd_table_ivt(struct sdp_dev *dev, struct ivt_header *hdr, unsi
 	return err;
 }
 
-static int get_dcd_range_old(struct old_app_header *hdr,
+static int get_dcd_range_old(struct flash_header_v1 *hdr,
 		unsigned char *file_start, unsigned cnt,
 		unsigned char **pstart, unsigned char **pend)
 {
@@ -1015,7 +530,7 @@ static int get_dcd_range_old(struct old_app_header *hdr,
 
 	if (!hdr->dcd_ptr) {
 		printf("No dcd table, barker=%x\n", hdr->app_barker);
-		*pstart = *pend = ((unsigned char *)hdr) + sizeof(struct old_app_header);
+		*pstart = *pend = ((unsigned char *)hdr) + sizeof(struct flash_header_v1);
 		return 0;	//nothing to do
 	}
 	dcd = hdr->dcd_ptr + cvt_dest_to_src_old;
@@ -1042,7 +557,7 @@ static int get_dcd_range_old(struct old_app_header *hdr,
 	return 0;
 }
 
-static int write_dcd_table_old(struct sdp_dev *dev, struct old_app_header *hdr, unsigned char *file_start, unsigned cnt)
+static int write_dcd_table_old(struct sdp_dev *dev, struct flash_header_v1 *hdr, unsigned char *file_start, unsigned cnt)
 {
 	unsigned val;
 	unsigned char *dcd_end;
@@ -1466,15 +981,17 @@ int is_header(struct sdp_dev *dev, unsigned char *p)
 	switch (dev->header_type) {
 	case HDR_MX51:
 	{
-		struct old_app_header *ohdr = (struct old_app_header *)p;
-		if (ohdr->app_barker == 0xb1)
+		struct flash_header_v1 *hdr = (struct flash_header_v1 *)p;
+		if (hdr->app_barker == 0xb1)
 			return 1;
 		break;
 	}
 	case HDR_MX53:
 	{
-		struct ivt_header *hdr = (struct ivt_header *)p;
-		if ((hdr->barker == IVT_BARKER) || (hdr->barker == IVT2_BARKER))
+		struct flash_header_v2 *hdr = (struct flash_header_v2 *)p;
+		struct ivt_header *ivt = &hdr->header;
+		if (ivt->tag == IVT_HEADER_TAG &&
+		    (ivt->version == IVT_VERSION || ivt->version == IVT_VERSION_IMX8M))
 			return 1;
 	}
 	case HDR_UBOOT:
@@ -1496,18 +1013,18 @@ void init_header(struct sdp_dev *dev, struct load_desc *ld)
 	switch (dev->header_type) {
 	case HDR_MX51:
 	{
-		struct old_app_header *ohdr = (struct old_app_header *)ld->writeable_header;
-		unsigned char *p = (unsigned char *)(ohdr + 1);
+		struct flash_header_v1 *hdr = (struct flash_header_v1 *)ld->writeable_header;
+		unsigned char *p = (unsigned char *)(hdr + 1);
 		unsigned size;
-		unsigned extra_space = ((sizeof(struct old_app_header) + 4 - 1) | 0x3f) + 1;
+		unsigned extra_space = ((sizeof(struct flash_header_v1) + 4 - 1) | 0x3f) + 1;
 
 		ld->max_length += extra_space;
 		size = ld->max_length;
 
-		ohdr->app_start_addr = curr->jump_addr;
-		ohdr->app_barker = APP_BARKER;
-		ohdr->dcd_ptr_ptr = ld->header_addr + offsetof(struct old_app_header, dcd_ptr);
-		ohdr->app_dest_ptr = ld->dladdr;
+		hdr->app_start_addr = curr->jump_addr;
+		hdr->app_barker = APP_BARKER;
+		hdr->dcd_ptr_ptr = ld->header_addr + offsetof(struct flash_header_v1, dcd_ptr);
+		hdr->app_dest_ptr = ld->dladdr;
 
 		*p++ = (unsigned char)size;
 		size >>= 8;
@@ -1520,11 +1037,13 @@ void init_header(struct sdp_dev *dev, struct load_desc *ld)
 	}
 	case HDR_MX53:
 	{
-		struct ivt_header *hdr = (struct ivt_header *)ld->writeable_header;
+		struct flash_header_v2 *hdr = (struct flash_header_v2 *)ld->writeable_header;
 		struct boot_data *bd = (struct boot_data *)(hdr+1);
-		unsigned extra_space = ((sizeof(struct ivt_header) + sizeof(struct boot_data) - 1) | 0x3f) + 1;
+		unsigned extra_space = ((sizeof(struct flash_header_v2) + sizeof(struct boot_data) - 1) | 0x3f) + 1;
 
-		hdr->barker = IVT_BARKER;
+		hdr->header.tag = IVT_HEADER_TAG;
+		hdr->header.length = BE16(sizeof(*hdr));
+		hdr->header.version = IVT_VERSION;
 		hdr->start_addr = curr->jump_addr;
 		hdr->boot_data_ptr = ld->header_addr + sizeof(*hdr);
 		hdr->self_ptr = ld->header_addr;
@@ -1540,27 +1059,70 @@ void init_header(struct sdp_dev *dev, struct load_desc *ld)
 	}
 }
 
+/*
+ * Apply/load DCD table for v1 and v2 flash headers
+ *
+ * Returns 0 if successful or if there was no DCD table to download
+ * Returns -1 if the DCD table is invalid
+ */
 int perform_dcd(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start, unsigned cnt)
 {
 	int ret = 0;
 	switch (dev->header_type) {
 	case HDR_MX51:
 	{
-		struct old_app_header *ohdr = (struct old_app_header *)p;
-		ret = write_dcd_table_old(dev, ohdr, file_start, cnt);
-		dbg_printf("dcd_ptr=0x%08x\n", ohdr->dcd_ptr);
+		struct flash_header_v1 *hdr = (struct flash_header_v1 *)p;
+		ret = write_dcd_table_old(dev, hdr, file_start, cnt);
+		dbg_printf("dcd_ptr=0x%08x\n", hdr->dcd_ptr);
 		if (ret < 0)
 			return ret;
 		break;
 	}
 	case HDR_MX53:
 	{
-		struct ivt_header *hdr = (struct ivt_header *)p;
+#define cvt_dest_to_src		(((unsigned char *)hdr) - hdr->self_ptr)
+		struct flash_header_v2 *hdr = (struct flash_header_v2 *)p;
+		unsigned char* file_end = file_start + cnt;
+		unsigned char *dcd_end, *dcd_start;
+		struct dcd_v2 *dcd;
+		int length;
+
+		if (!hdr->dcd_ptr) {
+			printf("No DCD table\n");
+			return 0;	//nothing to do
+		}
+
+		dcd_start = hdr->dcd_ptr + cvt_dest_to_src;
+		if ((dcd_start < file_start) || (dcd_start + 4) > file_end) {
+			printf("bad dcd_ptr %08x\n", hdr->dcd_ptr);
+			return -1;
+		}
+
+		dcd = (struct dcd_v2 *)dcd_start;
+		if (dcd->header.tag != DCD_HEADER_TAG ||
+		    dcd->header.version != DCD_VERSION) {
+			printf("Unknown DCD header tag/version\n");
+			return -1;
+		}
+
+		length = BE16(dcd->header.length);
+		if (length == 0) {
+			printf("No DCD table, skip\n");
+			return 0;
+		}
+
+		/* Check whether DCD length is longer than file */
+		dcd_end = ((unsigned char *)dcd) + length;
+		if (dcd_end > file_end) {
+			printf("Bad dcd length 0x%08x\n", length);
+			return -1;
+		}
+
 		if (dev->mode == MODE_HID) {
-			ret = write_dcd(dev, hdr, file_start, cnt);
+			ret = write_dcd(dev, dcd);
 		} else {
 			// For processors that don't support the WRITE_DCD command (i.MX5x)
-			ret = write_dcd_table_ivt(dev, hdr, file_start, cnt);
+			ret = write_dcd_table_ivt(dev, dcd);
 		}
 		dbg_printf("dcd_ptr=0x%08x\n", hdr->dcd_ptr);
 		if (ret < 0)
@@ -1576,16 +1138,16 @@ int clear_dcd_ptr(struct sdp_dev *dev, unsigned char *p)
 	switch (dev->header_type) {
 	case HDR_MX51:
 	{
-		struct old_app_header *ohdr = (struct old_app_header *)p;
-		if (ohdr->dcd_ptr) {
-			printf("clear dcd_ptr=0x%08x\n", ohdr->dcd_ptr);
-			ohdr->dcd_ptr = 0;
+		struct flash_header_v1 *hdr = (struct flash_header_v1 *)p;
+		if (hdr->dcd_ptr) {
+			printf("clear dcd_ptr=0x%08x\n", hdr->dcd_ptr);
+			hdr->dcd_ptr = 0;
 		}
 		break;
 	}
 	case HDR_MX53:
 	{
-		struct ivt_header *hdr = (struct ivt_header *)p;
+		struct flash_header_v2 *hdr = (struct flash_header_v2 *)p;
 		if (hdr->dcd_ptr) {
 			printf("clear dcd_ptr=0x%08x\n", hdr->dcd_ptr);
 			hdr->dcd_ptr = 0;
@@ -1603,12 +1165,12 @@ int get_dl_start(struct sdp_dev *dev, unsigned char *p,
 	switch (dev->header_type) {
 	case HDR_MX51:
 	{
-		struct old_app_header *ohdr = (struct old_app_header *)p;
+		struct flash_header_v1 *hdr = (struct flash_header_v1 *)p;
 		unsigned char *dcd_end;
 		unsigned char* dcd;
-		int err = get_dcd_range_old(ohdr, ld->buf_start, ld->buf_cnt, &dcd, &dcd_end);
-		ld->dladdr = ohdr->app_dest_ptr;
-		ld->header_addr = ohdr->dcd_ptr_ptr - offsetof(struct old_app_header, dcd_ptr);
+		int err = get_dcd_range_old(hdr, ld->buf_start, ld->buf_cnt, &dcd, &dcd_end);
+		ld->dladdr = hdr->app_dest_ptr;
+		ld->header_addr = hdr->dcd_ptr_ptr - offsetof(struct flash_header_v1, dcd_ptr);
 		ld->plugin = 0;
 		if (err >= 0) {
 			ld->max_length = dcd_end[0] | (dcd_end[1] << 8) | (dcd_end[2] << 16) | (dcd_end[3] << 24);
@@ -1621,7 +1183,7 @@ int get_dl_start(struct sdp_dev *dev, unsigned char *p,
 		unsigned char* p1;
 		uint32_t *bd1;
 		unsigned offset;
-		struct ivt_header *hdr = (struct ivt_header *)p;
+		struct flash_header_v2 *hdr = (struct flash_header_v2 *)p;
 
 		ld->dladdr = hdr->self_ptr;
 		ld->header_addr = hdr->self_ptr;
