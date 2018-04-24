@@ -107,7 +107,7 @@ struct boot_data {
 	uint32_t plugin;
 };
 
-struct ivt_header {
+struct flash_header_v2 {
 #define IVT_BARKER 0x402000d1
 #define IVT2_BARKER 0x412000d1
 	uint32_t barker;
@@ -115,7 +115,7 @@ struct ivt_header {
 	uint32_t reserv1;
 	uint32_t dcd_ptr;
 	uint32_t boot_data_ptr;		/* struct boot_data * */
-	uint32_t self_ptr;		/* struct ivt_header *, this - boot_data.start = offset linked at */
+	uint32_t self_ptr;		/* struct flash_header_v2 *, this - boot_data.start = offset linked at */
 	uint32_t app_code_csf;
 	uint32_t reserv2;
 };
@@ -123,7 +123,7 @@ struct ivt_header {
 /*
  * MX51 header type
  */
-struct old_app_header {
+struct flash_header_v1 {
 	uint32_t app_start_addr;
 #define APP_BARKER	0xb1
 #define DCD_BARKER	0xb17219e9
@@ -336,7 +336,7 @@ static int do_data_transfer(struct sdp_dev *dev, unsigned char *buf, int len)
 	return err;
 }
 
-static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char *file_start, unsigned cnt)
+static int write_dcd(struct sdp_dev *dev, struct flash_header_v2 *hdr, unsigned char *file_start, unsigned cnt)
 {
 	struct sdp_command dl_command = {
 		.cmd = SDP_WRITE_DCD,
@@ -422,7 +422,7 @@ static int write_dcd(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char 
 	return transferSize;
 }
 
-static int write_dcd_table_ivt(struct sdp_dev *dev, struct ivt_header *hdr, unsigned char *file_start, unsigned cnt)
+static int write_dcd_table_ivt(struct sdp_dev *dev, struct flash_header_v2 *hdr, unsigned char *file_start, unsigned cnt)
 {
 	unsigned char *dcd_end;
 	unsigned m_length;
@@ -535,7 +535,7 @@ static int write_dcd_table_ivt(struct sdp_dev *dev, struct ivt_header *hdr, unsi
 	return err;
 }
 
-static int get_dcd_range_old(struct old_app_header *hdr,
+static int get_dcd_range_old(struct flash_header_v1 *hdr,
 		unsigned char *file_start, unsigned cnt,
 		unsigned char **pstart, unsigned char **pend)
 {
@@ -548,7 +548,7 @@ static int get_dcd_range_old(struct old_app_header *hdr,
 
 	if (!hdr->dcd_ptr) {
 		printf("No dcd table, barker=%x\n", hdr->app_barker);
-		*pstart = *pend = ((unsigned char *)hdr) + sizeof(struct old_app_header);
+		*pstart = *pend = ((unsigned char *)hdr) + sizeof(struct flash_header_v1);
 		return 0;	//nothing to do
 	}
 	dcd = hdr->dcd_ptr + cvt_dest_to_src_old;
@@ -575,7 +575,7 @@ static int get_dcd_range_old(struct old_app_header *hdr,
 	return 0;
 }
 
-static int write_dcd_table_old(struct sdp_dev *dev, struct old_app_header *hdr, unsigned char *file_start, unsigned cnt)
+static int write_dcd_table_old(struct sdp_dev *dev, struct flash_header_v1 *hdr, unsigned char *file_start, unsigned cnt)
 {
 	unsigned val;
 	unsigned char *dcd_end;
@@ -999,14 +999,14 @@ int is_header(struct sdp_dev *dev, unsigned char *p)
 	switch (dev->header_type) {
 	case HDR_MX51:
 	{
-		struct old_app_header *ohdr = (struct old_app_header *)p;
-		if (ohdr->app_barker == 0xb1)
+		struct flash_header_v1 *hdr = (struct flash_header_v1 *)p;
+		if (hdr->app_barker == 0xb1)
 			return 1;
 		break;
 	}
 	case HDR_MX53:
 	{
-		struct ivt_header *hdr = (struct ivt_header *)p;
+		struct flash_header_v2 *hdr = (struct flash_header_v2 *)p;
 		if ((hdr->barker == IVT_BARKER) || (hdr->barker == IVT2_BARKER))
 			return 1;
 	}
@@ -1029,18 +1029,18 @@ void init_header(struct sdp_dev *dev, struct load_desc *ld)
 	switch (dev->header_type) {
 	case HDR_MX51:
 	{
-		struct old_app_header *ohdr = (struct old_app_header *)ld->writeable_header;
-		unsigned char *p = (unsigned char *)(ohdr + 1);
+		struct flash_header_v1 *hdr = (struct flash_header_v1 *)ld->writeable_header;
+		unsigned char *p = (unsigned char *)(hdr + 1);
 		unsigned size;
-		unsigned extra_space = ((sizeof(struct old_app_header) + 4 - 1) | 0x3f) + 1;
+		unsigned extra_space = ((sizeof(struct flash_header_v1) + 4 - 1) | 0x3f) + 1;
 
 		ld->max_length += extra_space;
 		size = ld->max_length;
 
-		ohdr->app_start_addr = curr->jump_addr;
-		ohdr->app_barker = APP_BARKER;
-		ohdr->dcd_ptr_ptr = ld->header_addr + offsetof(struct old_app_header, dcd_ptr);
-		ohdr->app_dest_ptr = ld->dladdr;
+		hdr->app_start_addr = curr->jump_addr;
+		hdr->app_barker = APP_BARKER;
+		hdr->dcd_ptr_ptr = ld->header_addr + offsetof(struct flash_header_v1, dcd_ptr);
+		hdr->app_dest_ptr = ld->dladdr;
 
 		*p++ = (unsigned char)size;
 		size >>= 8;
@@ -1053,9 +1053,9 @@ void init_header(struct sdp_dev *dev, struct load_desc *ld)
 	}
 	case HDR_MX53:
 	{
-		struct ivt_header *hdr = (struct ivt_header *)ld->writeable_header;
+		struct flash_header_v2 *hdr = (struct flash_header_v2 *)ld->writeable_header;
 		struct boot_data *bd = (struct boot_data *)(hdr+1);
-		unsigned extra_space = ((sizeof(struct ivt_header) + sizeof(struct boot_data) - 1) | 0x3f) + 1;
+		unsigned extra_space = ((sizeof(struct flash_header_v2) + sizeof(struct boot_data) - 1) | 0x3f) + 1;
 
 		hdr->barker = IVT_BARKER;
 		hdr->start_addr = curr->jump_addr;
@@ -1079,16 +1079,16 @@ int perform_dcd(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start
 	switch (dev->header_type) {
 	case HDR_MX51:
 	{
-		struct old_app_header *ohdr = (struct old_app_header *)p;
-		ret = write_dcd_table_old(dev, ohdr, file_start, cnt);
-		dbg_printf("dcd_ptr=0x%08x\n", ohdr->dcd_ptr);
+		struct flash_header_v1 *hdr = (struct flash_header_v1 *)p;
+		ret = write_dcd_table_old(dev, hdr, file_start, cnt);
+		dbg_printf("dcd_ptr=0x%08x\n", hdr->dcd_ptr);
 		if (ret < 0)
 			return ret;
 		break;
 	}
 	case HDR_MX53:
 	{
-		struct ivt_header *hdr = (struct ivt_header *)p;
+		struct flash_header_v2 *hdr = (struct flash_header_v2 *)p;
 		if (dev->mode == MODE_HID) {
 			ret = write_dcd(dev, hdr, file_start, cnt);
 		} else {
@@ -1109,16 +1109,16 @@ int clear_dcd_ptr(struct sdp_dev *dev, unsigned char *p)
 	switch (dev->header_type) {
 	case HDR_MX51:
 	{
-		struct old_app_header *ohdr = (struct old_app_header *)p;
-		if (ohdr->dcd_ptr) {
-			printf("clear dcd_ptr=0x%08x\n", ohdr->dcd_ptr);
-			ohdr->dcd_ptr = 0;
+		struct flash_header_v1 *hdr = (struct flash_header_v1 *)p;
+		if (hdr->dcd_ptr) {
+			printf("clear dcd_ptr=0x%08x\n", hdr->dcd_ptr);
+			hdr->dcd_ptr = 0;
 		}
 		break;
 	}
 	case HDR_MX53:
 	{
-		struct ivt_header *hdr = (struct ivt_header *)p;
+		struct flash_header_v2 *hdr = (struct flash_header_v2 *)p;
 		if (hdr->dcd_ptr) {
 			printf("clear dcd_ptr=0x%08x\n", hdr->dcd_ptr);
 			hdr->dcd_ptr = 0;
@@ -1136,12 +1136,12 @@ int get_dl_start(struct sdp_dev *dev, unsigned char *p,
 	switch (dev->header_type) {
 	case HDR_MX51:
 	{
-		struct old_app_header *ohdr = (struct old_app_header *)p;
+		struct flash_header_v1 *hdr = (struct flash_header_v1 *)p;
 		unsigned char *dcd_end;
 		unsigned char* dcd;
-		int err = get_dcd_range_old(ohdr, ld->buf_start, ld->buf_cnt, &dcd, &dcd_end);
-		ld->dladdr = ohdr->app_dest_ptr;
-		ld->header_addr = ohdr->dcd_ptr_ptr - offsetof(struct old_app_header, dcd_ptr);
+		int err = get_dcd_range_old(hdr, ld->buf_start, ld->buf_cnt, &dcd, &dcd_end);
+		ld->dladdr = hdr->app_dest_ptr;
+		ld->header_addr = hdr->dcd_ptr_ptr - offsetof(struct flash_header_v1, dcd_ptr);
 		ld->plugin = 0;
 		if (err >= 0) {
 			ld->max_length = dcd_end[0] | (dcd_end[1] << 8) | (dcd_end[2] << 16) | (dcd_end[3] << 24);
@@ -1154,7 +1154,7 @@ int get_dl_start(struct sdp_dev *dev, unsigned char *p,
 		unsigned char* p1;
 		uint32_t *bd1;
 		unsigned offset;
-		struct ivt_header *hdr = (struct ivt_header *)p;
+		struct flash_header_v2 *hdr = (struct flash_header_v2 *)p;
 
 		ld->dladdr = hdr->self_ptr;
 		ld->header_addr = hdr->self_ptr;
