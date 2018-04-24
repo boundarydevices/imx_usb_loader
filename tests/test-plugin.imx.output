@@ -37,7 +37,7 @@ plug 1
 jump_mode 2
 jump_addr 0x00000000
 == end work item
-No dcd table, barker=402000d1
+No DCD table
 
 loading binary file(test-plugin.imx) to 00907400, skip=0, fsize=fc00 type=aa
 report=1, cnt=16

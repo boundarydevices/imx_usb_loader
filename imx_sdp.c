@@ -114,6 +114,9 @@ struct boot_data {
 #define IVT_HEADER_TAG			0xD1
 #define IVT_VERSION			0x40
 #define IVT_VERSION_IMX8M		0x41
+#define DCD_HEADER_TAG			0xD2
+#define DCD_VERSION			0x40
+#define DCD_VERSION_IMX8M		0x41
 
 #pragma pack (1)
 struct ivt_header {
@@ -133,6 +136,21 @@ struct flash_header_v2 {
 	uint32_t app_code_csf;
 	uint32_t reserv2;
 };
+
+#pragma pack (1)
+struct write_dcd_command {
+	uint8_t tag;
+	uint16_t length;
+	uint8_t param;
+};
+#pragma pack ()
+
+struct dcd_v2 {
+	struct ivt_header header;
+	struct write_dcd_command write_dcd_command;
+	unsigned char *addr_data;
+};
+
 
 /*
  * MX51 header type
@@ -350,7 +368,7 @@ static int do_data_transfer(struct sdp_dev *dev, unsigned char *buf, int len)
 	return err;
 }
 
-static int write_dcd(struct sdp_dev *dev, unsigned char *dcd, unsigned char *file_start, unsigned cnt)
+static int write_dcd(struct sdp_dev *dev, struct dcd_v2 *dcd)
 {
 	struct sdp_command dl_command = {
 		.cmd = SDP_WRITE_DCD,
@@ -360,44 +378,24 @@ static int write_dcd(struct sdp_dev *dev, unsigned char *dcd, unsigned char *fil
 		.data = 0,
 		.rsvd = 0};
 
-	int length;
-	unsigned char *dcd_end;
-	unsigned char* file_end = file_start + cnt;
+	int length = BE16(dcd->header.length);
 
 	int err;
 	unsigned transferSize=0;
-
-	if ((dcd[0] != 0xd2) || (dcd[3] != 0x40)) {
-		printf("Unknown tag\n");
-		return -1;
-	}
-
-	length = (dcd[1] << 8) + dcd[2];
 
 	if (length > HAB_MAX_DCD_SIZE) {
 		printf("DCD is too big (%d bytes)\n", length);
 		return -1;
 	}
 
-	if (length == 0) {
-		printf("No DCD table, skip\n");
-		return 0;
-	}
-
 	dl_command.cnt = BE32(length);
-
-	dcd_end = dcd + length;
-	if (dcd_end > file_end) {
-		printf("bad dcd length %08x\n", length);
-		return -1;
-	}
 
 	printf("loading DCD table @%#x\n", dev->dcd_addr);
 	err = do_command(dev, &dl_command, 5);
 	if (err)
 		return err;
 
-	err = do_data_transfer(dev, dcd, length);
+	err = do_data_transfer(dev, (unsigned char *)dcd, length);
 	if (err < 0)
 		return err;
 	transferSize = err;
@@ -425,25 +423,16 @@ static int write_dcd(struct sdp_dev *dev, unsigned char *dcd, unsigned char *fil
 	return transferSize;
 }
 
-static int write_dcd_table_ivt(struct sdp_dev *dev, unsigned char *dcd, unsigned char *file_start, unsigned cnt)
+static int write_dcd_table_ivt(struct sdp_dev *dev, struct dcd_v2 *dcdhdr)
 {
+	int length = BE16(dcdhdr->header.length);
+	unsigned char *dcd = (unsigned char *)&dcdhdr->write_dcd_command;
 	unsigned char *dcd_end;
-	unsigned m_length;
-	unsigned char* file_end = file_start + cnt;
 	int err = 0;
 
-	m_length = (dcd[1] << 8) + dcd[2];
-	printf("main dcd length %x\n", m_length);
-	if ((dcd[0] != 0xd2) || (dcd[3] != 0x40)) {
-		printf("Unknown tag\n");
-		return -1;
-	}
-	dcd_end = dcd + m_length;
-	if (dcd_end > file_end) {
-		printf("bad dcd length %08x\n", m_length);
-		return -1;
-	}
-	dcd += 4;
+	printf("main dcd length %x\n", length);
+	dcd_end = ((unsigned char *)dcdhdr) + length;
+
 	while (dcd < dcd_end) {
 		unsigned s_length = (dcd[1] << 8) + dcd[2];
 		unsigned sub_tag = (dcd[0] << 24) + (dcd[3] & 0x7);
@@ -1094,24 +1083,46 @@ int perform_dcd(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start
 #define cvt_dest_to_src		(((unsigned char *)hdr) - hdr->self_ptr)
 		struct flash_header_v2 *hdr = (struct flash_header_v2 *)p;
 		unsigned char* file_end = file_start + cnt;
-		unsigned char *dcd;
+		unsigned char *dcd_end, *dcd_start;
+		struct dcd_v2 *dcd;
+		int length;
 
 		if (!hdr->dcd_ptr) {
-			printf("No dcd table\n");
+			printf("No DCD table\n");
 			return 0;	//nothing to do
 		}
 
-		dcd = hdr->dcd_ptr + cvt_dest_to_src;
-		if ((dcd < file_start) || ((dcd + 4) > file_end)) {
+		dcd_start = hdr->dcd_ptr + cvt_dest_to_src;
+		if ((dcd_start < file_start) || (dcd_start + 4) > file_end) {
 			printf("bad dcd_ptr %08x\n", hdr->dcd_ptr);
 			return -1;
 		}
 
+		dcd = (struct dcd_v2 *)dcd_start;
+		if (dcd->header.tag != DCD_HEADER_TAG ||
+		    dcd->header.version != DCD_VERSION) {
+			printf("Unknown DCD header tag/version\n");
+			return -1;
+		}
+
+		length = BE16(dcd->header.length);
+		if (length == 0) {
+			printf("No DCD table, skip\n");
+			return 0;
+		}
+
+		/* Check whether DCD length is longer than file */
+		dcd_end = ((unsigned char *)dcd) + length;
+		if (dcd_end > file_end) {
+			printf("Bad dcd length 0x%08x\n", length);
+			return -1;
+		}
+
 		if (dev->mode == MODE_HID) {
-			ret = write_dcd(dev, dcd, file_start, cnt);
+			ret = write_dcd(dev, dcd);
 		} else {
 			// For processors that don't support the WRITE_DCD command (i.MX5x)
-			ret = write_dcd_table_ivt(dev, dcd, file_start, cnt);
+			ret = write_dcd_table_ivt(dev, dcd);
 		}
 		dbg_printf("dcd_ptr=0x%08x\n", hdr->dcd_ptr);
 		if (ret < 0)
