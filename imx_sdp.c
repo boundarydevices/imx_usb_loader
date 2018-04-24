@@ -42,11 +42,14 @@ int debugmode = 0;
 #ifdef __GNUC__
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 #define BE32(x) __builtin_bswap32(x)
+#define BE16(x) __builtin_bswap16(x)
 #else
 #define BE32(x) x
+#define BE16(x) x
 #endif
 #elif _MSC_VER // assume little endian...
 #define BE32(x) _byteswap_ulong(x)
+#define BE16(x) _byteswap_ushort(x)
 #endif
 
 #define get_min(a, b) (((a) < (b)) ? (a) : (b))
@@ -107,10 +110,21 @@ struct boot_data {
 	uint32_t plugin;
 };
 
+/* Command tags and parameters */
+#define IVT_HEADER_TAG			0xD1
+#define IVT_VERSION			0x40
+#define IVT_VERSION_IMX8M		0x41
+
+#pragma pack (1)
+struct ivt_header {
+        uint8_t tag;
+        uint16_t length;
+        uint8_t version;
+};
+#pragma pack ()
+
 struct flash_header_v2 {
-#define IVT_BARKER 0x402000d1
-#define IVT2_BARKER 0x412000d1
-	uint32_t barker;
+	struct ivt_header header;
 	uint32_t start_addr;
 	uint32_t reserv1;
 	uint32_t dcd_ptr;
@@ -986,7 +1000,9 @@ int is_header(struct sdp_dev *dev, unsigned char *p)
 	case HDR_MX53:
 	{
 		struct flash_header_v2 *hdr = (struct flash_header_v2 *)p;
-		if ((hdr->barker == IVT_BARKER) || (hdr->barker == IVT2_BARKER))
+		struct ivt_header *ivt = &hdr->header;
+		if (ivt->tag == IVT_HEADER_TAG &&
+		    (ivt->version == IVT_VERSION || ivt->version == IVT_VERSION_IMX8M))
 			return 1;
 	}
 	case HDR_UBOOT:
@@ -1036,7 +1052,9 @@ void init_header(struct sdp_dev *dev, struct load_desc *ld)
 		struct boot_data *bd = (struct boot_data *)(hdr+1);
 		unsigned extra_space = ((sizeof(struct flash_header_v2) + sizeof(struct boot_data) - 1) | 0x3f) + 1;
 
-		hdr->barker = IVT_BARKER;
+		hdr->header.tag = IVT_HEADER_TAG;
+		hdr->header.length = BE16(sizeof(*hdr));
+		hdr->header.version = IVT_VERSION;
 		hdr->start_addr = curr->jump_addr;
 		hdr->boot_data_ptr = ld->header_addr + sizeof(*hdr);
 		hdr->self_ptr = ld->header_addr;
@@ -1079,7 +1097,7 @@ int perform_dcd(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start
 		unsigned char *dcd;
 
 		if (!hdr->dcd_ptr) {
-			printf("No dcd table, barker=%x\n", hdr->barker);
+			printf("No dcd table\n");
 			return 0;	//nothing to do
 		}
 
