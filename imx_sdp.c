@@ -39,19 +39,6 @@
 
 int debugmode = 0;
 
-#ifdef __GNUC__
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-#define BE32(x) __builtin_bswap32(x)
-#define BE16(x) __builtin_bswap16(x)
-#else
-#define BE32(x) x
-#define BE16(x) x
-#endif
-#elif _MSC_VER // assume little endian...
-#define BE32(x) _byteswap_ulong(x)
-#define BE16(x) _byteswap_ushort(x)
-#endif
-
 #define get_min(a, b) (((a) < (b)) ? (a) : (b))
 #define ARRAY_SIZE(x)	(sizeof(x) / sizeof(x[0]))
 
