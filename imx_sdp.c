@@ -64,33 +64,6 @@ struct load_desc {
 	unsigned char writeable_header[1024];
 };
 
-
-
-void print_sdp_work(struct sdp_work *curr)
-{
-	printf("== work item\n");
-	printf("filename %s\n", curr->filename);
-	printf("load_size %d bytes\n", curr->load_size);
-	printf("load_addr 0x%08x\n", curr->load_addr);
-	printf("dcd %u\n", curr->dcd);
-	printf("clear_dcd %u\n", curr->clear_dcd);
-	printf("plug %u\n", curr->plug);
-	printf("jump_mode %d\n", curr->jump_mode);
-	printf("jump_addr 0x%08x\n", curr->jump_addr);
-	printf("== end work item\n");
-	return;
-}
-
-long get_file_size(FILE *xfile)
-{
-	long size;
-	fseek(xfile, 0, SEEK_END);
-	size = ftell(xfile);
-	rewind(xfile);
-//	printf("filesize=%lx\n", size);
-	return size;
-}
-
 struct boot_data {
 	uint32_t dest;
 	uint32_t image_len;
@@ -153,6 +126,31 @@ struct flash_header_v1 {
 	uint32_t dcd_ptr;
 	uint32_t app_dest_ptr;
 };
+
+static void print_sdp_work(struct sdp_work *curr)
+{
+	printf("== work item\n");
+	printf("filename %s\n", curr->filename);
+	printf("load_size %d bytes\n", curr->load_size);
+	printf("load_addr 0x%08x\n", curr->load_addr);
+	printf("dcd %u\n", curr->dcd);
+	printf("clear_dcd %u\n", curr->clear_dcd);
+	printf("plug %u\n", curr->plug);
+	printf("jump_mode %d\n", curr->jump_mode);
+	printf("jump_addr 0x%08x\n", curr->jump_addr);
+	printf("== end work item\n");
+	return;
+}
+
+static long get_file_size(FILE *xfile)
+{
+	long size;
+	fseek(xfile, 0, SEEK_END);
+	size = ftell(xfile);
+	rewind(xfile);
+//	printf("filesize=%lx\n", size);
+	return size;
+}
 
 static int do_response(struct sdp_dev *dev, int report, unsigned int *result,
 		bool silent)
@@ -570,7 +568,7 @@ static int write_dcd_table_old(struct sdp_dev *dev, struct flash_header_v1 *hdr,
 	return err;
 }
 
-void diff_long(unsigned char *src1, unsigned char *src2, unsigned cnt, unsigned skip)
+static void diff_long(unsigned char *src1, unsigned char *src2, unsigned cnt, unsigned skip)
 {
 	unsigned char buf[8*9 + 2];
 	unsigned *s1 = (unsigned *)src1;
@@ -665,7 +663,7 @@ void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr)
 	}
 }
 
-void fetch_data(struct load_desc *ld, unsigned foffset, unsigned char **p, unsigned *cnt)
+static void fetch_data(struct load_desc *ld, unsigned foffset, unsigned char **p, unsigned *cnt)
 {
 	unsigned skip = foffset - ld->header_offset;
 	unsigned buf_cnt = ld->buf_cnt;
@@ -690,7 +688,7 @@ void fetch_data(struct load_desc *ld, unsigned foffset, unsigned char **p, unsig
 	*cnt = buf_cnt - skip;
 }
 
-int verify_memory(struct sdp_dev *dev, struct load_desc *ld, unsigned foffset,
+static int verify_memory(struct sdp_dev *dev, struct load_desc *ld, unsigned foffset,
 		unsigned size)
 {
 	int mismatch = 0;
@@ -765,7 +763,7 @@ int verify_memory(struct sdp_dev *dev, struct load_desc *ld, unsigned foffset,
 	return mismatch ? -1 : 0;
 }
 
-int load_file(struct sdp_dev *dev, struct load_desc *ld, unsigned foffset,
+static int load_file(struct sdp_dev *dev, struct load_desc *ld, unsigned foffset,
 		unsigned fsize, unsigned char type)
 {
 	struct sdp_command dl_command = {
@@ -849,7 +847,7 @@ int load_file(struct sdp_dev *dev, struct load_desc *ld, unsigned foffset,
 	return transferSize;
 }
 
-int jump(struct sdp_dev *dev, unsigned int header_addr)
+static int jump(struct sdp_dev *dev, unsigned int header_addr)
 {
 	int err;
 	struct sdp_command jump_command = {
@@ -885,7 +883,7 @@ int jump(struct sdp_dev *dev, unsigned int header_addr)
 	return 0;
 }
 
-int load_file_from_desc(struct sdp_dev *dev, struct sdp_work *curr,
+static int load_file_from_desc(struct sdp_dev *dev, struct sdp_work *curr,
 		struct load_desc *ld)
 {
 	int ret;
@@ -964,7 +962,7 @@ cleanup:
 	return ret;
 }
 
-int is_header(struct sdp_dev *dev, unsigned char *p)
+static int is_header(struct sdp_dev *dev, unsigned char *p)
 {
 	switch (dev->header_type) {
 	case HDR_MX51:
@@ -992,7 +990,7 @@ int is_header(struct sdp_dev *dev, unsigned char *p)
 	return 0;
 }
 
-void init_header(struct sdp_dev *dev, struct load_desc *ld)
+static void init_header(struct sdp_dev *dev, struct load_desc *ld)
 {
 	struct sdp_work *curr = ld->curr;
 
@@ -1053,7 +1051,7 @@ void init_header(struct sdp_dev *dev, struct load_desc *ld)
  * Returns 0 if successful or if there was no DCD table to download
  * Returns -1 if the DCD table is invalid
  */
-int perform_dcd(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start, unsigned cnt)
+static int perform_dcd(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start, unsigned cnt)
 {
 	int ret = 0;
 	switch (dev->header_type) {
@@ -1121,7 +1119,7 @@ int perform_dcd(struct sdp_dev *dev, unsigned char *p, unsigned char *file_start
 	return 0;
 }
 
-int clear_dcd_ptr(struct sdp_dev *dev, unsigned char *p)
+static int clear_dcd_ptr(struct sdp_dev *dev, unsigned char *p)
 {
 	switch (dev->header_type) {
 	case HDR_MX51:
@@ -1146,7 +1144,7 @@ int clear_dcd_ptr(struct sdp_dev *dev, unsigned char *p)
 	return 0;
 }
 
-int get_dl_start(struct sdp_dev *dev, unsigned char *p,
+static int get_dl_start(struct sdp_dev *dev, unsigned char *p,
 	struct load_desc *ld, unsigned int clear_boot_data)
 {
 	unsigned char* file_end = ld->buf_start + ld->buf_cnt;
@@ -1248,9 +1246,9 @@ int do_status(struct sdp_dev *dev)
 	return 0;
 }
 
-unsigned offset_search_list[] = {0, 0x400, 0x8400};
+static unsigned offset_search_list[] = {0, 0x400, 0x8400};
 
-int process_header(struct sdp_dev *dev, struct sdp_work *curr,
+static int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 		struct load_desc *ld)
 {
 	int ret;

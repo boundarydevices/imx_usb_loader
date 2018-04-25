@@ -111,6 +111,7 @@ struct sdp_command {
 };
 #pragma pack ()
 
+void dump_long(unsigned char *src, unsigned cnt, unsigned addr, unsigned skip);
 void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr);
 
 void perform_mem_work(struct sdp_dev *dev, struct mem_work *mem);
