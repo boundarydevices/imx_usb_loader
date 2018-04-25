@@ -46,6 +46,7 @@ struct sdp_work {
 	unsigned char clear_dcd;		//means clear dcd_ptr
 	unsigned char clear_boot_data;		//means clear boot data ptr
 	unsigned char plug;
+#define J_UNKNOWN	0
 #define J_ADDR_DIRECT	1
 #define J_ADDR_HEADER	2
 #define J_HEADER	3

@@ -131,6 +131,14 @@ struct flash_header_v1 {
 	uint32_t app_dest_ptr;
 };
 
+static const char *jump_modes[] = {
+	[J_UNKNOWN] = "unknown",
+	[J_ADDR_DIRECT] = "addr_direct",
+	[J_ADDR_HEADER] = "addr_header",
+	[J_HEADER] = "header",
+	[J_HEADER2] = "header2",
+};
+
 static void print_sdp_work(const struct sdp_work *curr)
 {
 	printf("== work item\n");
@@ -141,7 +149,10 @@ static void print_sdp_work(const struct sdp_work *curr)
 	printf("dcd %u\n", curr->dcd);
 	printf("clear_dcd %u\n", curr->clear_dcd);
 	printf("plug %u\n", curr->plug);
-	printf("jump_mode %d\n", curr->jump_mode);
+	if (curr->jump_mode <= J_HEADER2)
+		printf("jump_mode %s\n", jump_modes[curr->jump_mode]);
+	else
+		printf("jump_mode %s\n", "unknown");
 	printf("jump_addr 0x%08x\n", curr->jump_addr);
 	printf("== end work item\n");
 	return;
