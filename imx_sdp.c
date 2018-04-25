@@ -1358,8 +1358,6 @@ int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 	return -EINVAL;
 }
 
-#define MAX_IN_LENGTH 100 // max length for user input strings
-
 int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 {
 	int ret;
