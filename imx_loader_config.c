@@ -417,7 +417,6 @@ struct sdp_dev *parse_conf(const char *filename)
 			if (tail)
 				tail->next = curr;
 			tail = curr;
-			curr->load_addr = usb->ram[0].start + 0x03f00000;	/* default */
 		}
 
 		if (p[0] == ':') {
