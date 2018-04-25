@@ -9196,17 +9196,7 @@ cmd: 0505
 report=3, cnt=64
 HAB security state: development mode (0x56787856)
 report=4, cnt=64
-== work item
-filename test-plugin.imx
-load_size 0 bytes
-load_addr 0x00000000
-dcd 0
-clear_dcd 0
-plug 0
-jump_mode 3
-jump_addr 0x00000000
-== end work item
-header_max=10400
+header_max=10000
 
 loading binary file(test-plugin.imx) to 877effd4, skip=0, fsize=1102c type=aa
 report=1, cnt=16
