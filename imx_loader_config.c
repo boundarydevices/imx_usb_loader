@@ -281,9 +281,9 @@ void parse_file_work(struct sdp_work *curr, const char *filename, const char *p)
 			curr->load_skip = get_val(&p, 16);
 			p = skip(p,',');
 		}
-		if (strncmp(p, "jump_script", 11) == 0) {
+		if (strncmp(p, "jump_direct", 11) == 0) {
 			p += 11;
-			curr->jump_mode = J_ADDR_SCRIPT;
+			curr->jump_mode = J_ADDR_DIRECT;
 			curr->jump_addr = get_val(&p, 16);
 			p = skip(p,',');
 		}

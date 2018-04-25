@@ -1424,7 +1424,7 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 			/* If the header is at EOF, fsize needs increased */
 			ld.fsize += ld.max_length - cnt;
 			dbg_dump_long((unsigned char *)ld.writeable_header, ld.max_length - cnt, ld.header_addr, 0);
-		} else if (curr->jump_mode == J_ADDR_SCRIPT) {
+		} else if (curr->jump_mode == J_ADDR_DIRECT) {
 			ld.header_addr = curr->jump_addr;
 			ld.header_offset = 0;
 		}
