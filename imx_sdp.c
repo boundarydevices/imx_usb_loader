@@ -1336,25 +1336,47 @@ static int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 			header_max = ld->header_offset + header_inc + 0x400;
 			continue;
 		}
-		if ((ld->plugin & PLUGIN_IMAGE_FLAG_MASK) && (!curr->plug) && (!header_cnt)) {
+		if (ld->plugin & PLUGIN_IMAGE_FLAG_MASK) {
+			if (curr->plug) {
+				ret = load_file_from_desc(dev, curr, ld);
+				if (ret < 0) {
+					printf("!!load_file_from_desc %i\n", ret);
+					return ret;
+				}
+
+				if (dev->mode == MODE_HID) {
+					ret = jump(dev, ld->header_addr);
+					if (ret < 0) {
+						printf("!!jump %i\n", ret);
+						return ret;
+					}
+				}
+
+				ret = do_status(dev);
+				if (ret < 0) {
+					printf("!!status failed\n");
+					return ret;
+				}
+			}
+
+			/* This was the plugin header, go to next header */
 			header_cnt++;
 			header_max = ld->header_offset + ld->max_length + 0x400;
 			printf("header_max=%x\n", header_max);
 			header_inc = 4;
-		} else {
-			if (!ld->plugin)
-				curr->plug = 0;
-			if (curr->jump_mode == J_HEADER2) {
-				if (!found) {
-					found++;
-					ld->header_offset += ld->dladdr - ld->header_addr + ld->max_length;
-					header_inc = 0x400;
-					header_max = ld->header_offset + 0x400 * 128;
-					continue;
-				}
-			}
-			return 0;
+			continue;
 		}
+
+		if (curr->jump_mode == J_HEADER2) {
+			if (!found) {
+				found++;
+				ld->header_offset += ld->dladdr - ld->header_addr + ld->max_length;
+				header_inc = 0x400;
+				header_max = ld->header_offset + 0x400 * 128;
+				continue;
+			}
+		}
+		return 0;
 	}
 	printf("header not found %x:%x, %x\n", ld->header_offset, *(unsigned int *)p, ld->buf_cnt);
 	return -EINVAL;
@@ -1426,7 +1448,7 @@ static int do_download(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 	 * Any command will initiate jump for bulk devices, no need to
 	 * explicitly send a jump command
 	 */
-	if (dev->mode == MODE_HID && (curr->plug || curr->jump_mode)) {
+	if (dev->mode == MODE_HID && curr->jump_mode) {
 		ret = jump(dev, ld.header_addr);
 		if (ret < 0)
 			goto cleanup;
@@ -1463,25 +1485,11 @@ int do_work(struct sdp_dev *p_id, struct sdp_work **work, int verify)
 
 		/* Check if more work is to do... */
 		if (!curr->next) {
-			/*
-			 * If only one job, but with a plug-in is specified
-			 * reexecute the same job, but this time download the
-			 * image. This allows to specify a single file with
-			 * plugin and image, and imx_usb will download & run
-			 * the plugin first and then the image.
-			 * NOTE: If the file does not contain a plugin,
-			 * DoIRomDownload->process_header will set curr->plug
-			 * to 0, so we won't download the same image twice...
-			 */
-			if (curr->plug) {
-				curr->plug = 0;
-			} else {
-				curr = NULL;
-				break;
-			}
-		} else {
-			curr = curr->next;
+			curr = NULL;
+			break;
 		}
+
+		curr = curr->next;
 
 		/*
 		 * Check if device is still here, otherwise return
