@@ -48,7 +48,7 @@ int debugmode = 0;
 #endif
 
 struct load_desc {
-	struct sdp_work *curr;
+	const struct sdp_work *curr;
 	FILE* xfile;
 	unsigned fsize;
 	int verify;
@@ -131,7 +131,7 @@ struct flash_header_v1 {
 	uint32_t app_dest_ptr;
 };
 
-static void print_sdp_work(struct sdp_work *curr)
+static void print_sdp_work(const struct sdp_work *curr)
 {
 	printf("== work item\n");
 	printf("memory work %s\n", curr->mem ? "yes" : "no");
@@ -928,7 +928,7 @@ static int jump(struct sdp_dev *dev, unsigned int header_addr)
 	return 0;
 }
 
-static int load_file_from_desc(struct sdp_dev *dev, struct sdp_work *curr,
+static int load_file_from_desc(struct sdp_dev *dev, const struct sdp_work *curr,
 		struct load_desc *ld)
 {
 	int ret;
@@ -1037,7 +1037,7 @@ static int is_header(struct sdp_dev *dev, unsigned char *p)
 
 static void init_header(struct sdp_dev *dev, struct load_desc *ld)
 {
-	struct sdp_work *curr = ld->curr;
+	const struct sdp_work *curr = ld->curr;
 
 	memset(ld->writeable_header, 0, sizeof(ld->writeable_header));
 
@@ -1253,7 +1253,7 @@ static int get_dl_start(struct sdp_dev *dev, unsigned char *p,
 
 static unsigned offset_search_list[] = {0, 0x400, 0x8400};
 
-static int process_header(struct sdp_dev *dev, struct sdp_work *curr,
+static int process_header(struct sdp_dev *dev, const struct sdp_work *curr,
 		struct load_desc *ld)
 {
 	int ret;
@@ -1265,6 +1265,7 @@ static int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 	int hdmi_ivt = 0;
 	int save_verify;
 	int found = 0;
+	bool download_dcd = (bool)curr->dcd;
 
 	while (1) {
 		if (header_inc) {
@@ -1297,7 +1298,7 @@ static int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 			printf("!!get_dl_start returned %i\n", ret);
 			return ret;
 		}
-		if (curr->dcd) {
+		if (download_dcd) {
 			ret = perform_dcd(dev, p, ld->buf_start, ld->buf_cnt);
 #if 1
 			clear_dcd_ptr(dev, ld->writeable_header);
@@ -1306,7 +1307,7 @@ static int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 				printf("!!perform_dcd returned %i\n", ret);
 				return ret;
 			}
-			curr->dcd = 0;
+			download_dcd = false;
 			if ((!curr->jump_mode) && (!curr->plug)) {
 				printf("!!dcd done, nothing else requested\n");
 				return 0;
@@ -1383,7 +1384,7 @@ static int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 	return -EINVAL;
 }
 
-static int do_download(struct sdp_dev *dev, struct sdp_work *curr, int verify)
+static int do_download(struct sdp_dev *dev, const struct sdp_work *curr, int verify)
 {
 	int ret;
 	struct load_desc ld = {};
