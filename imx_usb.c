@@ -385,67 +385,6 @@ void print_usage(void)
 		"is being used.\n");
 }
 
-int do_work(struct sdp_dev *p_id, struct sdp_work **work, int verify)
-{
-	struct sdp_work *curr = *work;
-	int err = 0;
-
-	err = do_status(p_id);
-	if (err) {
-		fprintf(stderr, "status failed\n");
-		return err;
-	}
-
-	while (curr) {
-		/* Do current job */
-		if (curr->mem)
-			perform_mem_work(p_id, curr->mem);
-		if (curr->filename[0])
-			err = DoIRomDownload(p_id, curr, verify);
-		if (err) {
-			fprintf(stderr, "DoIRomDownload failed, err=%d\n", err);
-			do_status(p_id);
-			break;
-		}
-
-		/* Check if more work is to do... */
-		if (!curr->next) {
-			/*
-			 * If only one job, but with a plug-in is specified
-			 * reexecute the same job, but this time download the
-			 * image. This allows to specify a single file with
-			 * plugin and image, and imx_usb will download & run
-			 * the plugin first and then the image.
-			 * NOTE: If the file does not contain a plugin,
-			 * DoIRomDownload->process_header will set curr->plug
-			 * to 0, so we won't download the same image twice...
-			 */
-			if (curr->plug) {
-				curr->plug = 0;
-			} else {
-				curr = NULL;
-				break;
-			}
-		} else {
-			curr = curr->next;
-		}
-
-		/*
-		 * Check if device is still here, otherwise return
-		 * with work (retry)
-		 */
-		err = do_status(p_id);
-		if (err < 0) {
-			err = 0;
-			break;
-		}
-	}
-
-	*work = curr;
-
-	return err;
-}
-
 int do_simulation_dev(char const *base_path, char const *conf_path,
 		struct mach_id *list, int verify, struct sdp_work *cmd_head,
 		char const *vidpid)

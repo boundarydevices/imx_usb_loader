@@ -419,43 +419,13 @@ int main(int argc, char * const argv[])
 	// UART private pointer is TTY file descriptor...
 	p_id->priv = &uart_fd;
 
-	err = do_status(p_id);
-	if (err) {
-		printf("status failed\n");
-		goto out;
-	}
-
 	// By default, use work from config file...
 	if (curr == NULL)
 		curr = p_id->work;
 
-	while (curr) {
-		if (curr->mem)
-			perform_mem_work(p_id, curr->mem);
-//		printf("jump_mode %x\n", curr->jump_mode);
-		if (curr->filename[0]) {
-			err = DoIRomDownload(p_id, curr, verify);
-		}
-		if (err) {
-			err = do_status(p_id);
-			break;
-		}
-		if (!curr->next && !curr->plug)
-			break;
-		err = do_status(p_id);
-		printf("jump_mode %x plug=%i err=%i\n", curr->jump_mode, curr->plug, err);
+	err = do_work(p_id, &curr, verify);
+	dbg_printf("do_work finished with err=%d, curr=%p\n", err, curr);
 
-		if (err)
-			goto out;
-
-		if (curr->plug) {
-			curr->plug = 0;
-			continue;
-		}
-		curr = curr->next;
-	}
-
-out:
 	uart_close(&uart_fd, &orig);
 	return err;
 }

@@ -282,7 +282,7 @@ static int write_memory(struct sdp_dev *dev, unsigned addr, unsigned val)
 	return err;
 }
 
-void perform_mem_work(struct sdp_dev *dev, struct mem_work *mem)
+static void perform_mem_work(struct sdp_dev *dev, struct mem_work *mem)
 {
 	unsigned tmp, tmp2;
 
@@ -305,6 +305,46 @@ void perform_mem_work(struct sdp_dev *dev, struct mem_work *mem)
 		}
 		mem = mem->next;
 	}
+}
+
+static int do_status(struct sdp_dev *dev)
+{
+	struct sdp_command status_command = {
+		.cmd = SDP_ERROR_STATUS,
+		.addr = 0,
+		.format = 0,
+		.cnt = 0,
+		.data = 0,
+		.rsvd = 0};
+	unsigned int hab_security, status;
+	int retry = 0;
+	int err;
+
+	err = do_command(dev, &status_command, 5);
+	if (err)
+		return err;
+
+	while (retry < 5) {
+		err = do_response(dev, 3, &hab_security, false);
+		if (!err)
+			break;
+
+		retry++;
+	}
+
+	if (err)
+		return err;
+
+	printf("HAB security state: %s (0x%08x)\n", hab_security == HAB_SECMODE_PROD ?
+			"production mode" : "development mode", hab_security);
+
+	if (dev->mode == MODE_HID) {
+		err = do_response(dev, 4, &status, false);
+		if (err)
+			return err;
+	}
+
+	return 0;
 }
 
 static int do_data_transfer(struct sdp_dev *dev, unsigned char *buf, int len)
@@ -1206,46 +1246,6 @@ static int get_dl_start(struct sdp_dev *dev, unsigned char *p,
 	return 0;
 }
 
-int do_status(struct sdp_dev *dev)
-{
-	struct sdp_command status_command = {
-		.cmd = SDP_ERROR_STATUS,
-		.addr = 0,
-		.format = 0,
-		.cnt = 0,
-		.data = 0,
-		.rsvd = 0};
-	unsigned int hab_security, status;
-	int retry = 0;
-	int err;
-
-	err = do_command(dev, &status_command, 5);
-	if (err)
-		return err;
-
-	while (retry < 5) {
-		err = do_response(dev, 3, &hab_security, false);
-		if (!err)
-			break;
-
-		retry++;
-	}
-
-	if (err)
-		return err;
-
-	printf("HAB security state: %s (0x%08x)\n", hab_security == HAB_SECMODE_PROD ?
-			"production mode" : "development mode", hab_security);
-
-	if (dev->mode == MODE_HID) {
-		err = do_response(dev, 4, &status, false);
-		if (err)
-			return err;
-	}
-
-	return 0;
-}
-
 static unsigned offset_search_list[] = {0, 0x400, 0x8400};
 
 static int process_header(struct sdp_dev *dev, struct sdp_work *curr,
@@ -1356,7 +1356,7 @@ static int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 	return -EINVAL;
 }
 
-int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
+static int do_download(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 {
 	int ret;
 	struct load_desc ld = {};
@@ -1432,5 +1432,66 @@ cleanup:
 	fclose(ld.xfile);
 	free(ld.buf_start);
 	return ret;
+}
+
+int do_work(struct sdp_dev *p_id, struct sdp_work **work, int verify)
+{
+	struct sdp_work *curr = *work;
+	int err = 0;
+
+	err = do_status(p_id);
+	if (err) {
+		fprintf(stderr, "status failed\n");
+		return err;
+	}
+
+	while (curr) {
+		/* Do current job */
+		if (curr->mem)
+			perform_mem_work(p_id, curr->mem);
+		if (curr->filename[0])
+			err = do_download(p_id, curr, verify);
+		if (err) {
+			fprintf(stderr, "do_download failed, err=%d\n", err);
+			do_status(p_id);
+			break;
+		}
+
+		/* Check if more work is to do... */
+		if (!curr->next) {
+			/*
+			 * If only one job, but with a plug-in is specified
+			 * reexecute the same job, but this time download the
+			 * image. This allows to specify a single file with
+			 * plugin and image, and imx_usb will download & run
+			 * the plugin first and then the image.
+			 * NOTE: If the file does not contain a plugin,
+			 * DoIRomDownload->process_header will set curr->plug
+			 * to 0, so we won't download the same image twice...
+			 */
+			if (curr->plug) {
+				curr->plug = 0;
+			} else {
+				curr = NULL;
+				break;
+			}
+		} else {
+			curr = curr->next;
+		}
+
+		/*
+		 * Check if device is still here, otherwise return
+		 * with work (retry)
+		 */
+		err = do_status(p_id);
+		if (err < 0) {
+			err = 0;
+			break;
+		}
+	}
+
+	*work = curr;
+
+	return err;
 }
 

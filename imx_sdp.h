@@ -114,9 +114,6 @@ struct sdp_command {
 void dump_long(unsigned char *src, unsigned cnt, unsigned addr, unsigned skip);
 void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr);
 
-void perform_mem_work(struct sdp_dev *dev, struct mem_work *mem);
-int do_status(struct sdp_dev *dev);
-
-int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify);
+int do_work(struct sdp_dev *p_id, struct sdp_work **work, int verify);
 
 #endif /* __IMX_SDP_H__ */
