@@ -34,7 +34,7 @@ load_addr 0x00000000
 dcd 1
 clear_dcd 0
 plug 1
-jump_mode 2
+jump_mode 3
 jump_addr 0x00000000
 == end work item
 No DCD table
