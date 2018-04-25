@@ -28,6 +28,7 @@ report=3, cnt=64
 HAB security state: development mode (0x56787856)
 report=4, cnt=64
 == work item
+memory work no
 filename test.imx
 load_size 0 bytes
 load_addr 0x00000000

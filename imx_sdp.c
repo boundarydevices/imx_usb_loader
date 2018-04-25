@@ -134,6 +134,7 @@ struct flash_header_v1 {
 static void print_sdp_work(struct sdp_work *curr)
 {
 	printf("== work item\n");
+	printf("memory work %s\n", curr->mem ? "yes" : "no");
 	printf("filename %s\n", curr->filename);
 	printf("load_size %d bytes\n", curr->load_size);
 	printf("load_addr 0x%08x\n", curr->load_addr);
@@ -1387,7 +1388,6 @@ static int do_download(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 	int ret;
 	struct load_desc ld = {};
 
-	print_sdp_work(curr);
 	ld.curr = curr;
 	ld.verify = verify;
 	ld.xfile = fopen(curr->filename, "rb" );
@@ -1473,6 +1473,7 @@ int do_work(struct sdp_dev *p_id, struct sdp_work **work, int verify)
 
 	while (curr) {
 		/* Do current job */
+		print_sdp_work(curr);
 		if (curr->mem)
 			perform_mem_work(p_id, curr->mem);
 		if (curr->filename[0])
