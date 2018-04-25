@@ -64,6 +64,10 @@ struct load_desc {
 	unsigned char writeable_header[1024];
 };
 
+/* Boot data image indicator */
+#define PLUGIN_IMAGE_FLAG_MASK              (0x0001)    /* bit 0 is plugin */
+#define HDMI_IMAGE_FLAG_MASK                (0x0002)    /* bit 1 is HDMI */
+
 struct boot_data {
 	uint32_t dest;
 	uint32_t image_len;
@@ -1314,7 +1318,7 @@ static int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 				return ret;
 			}
 		}
-		if (ld->plugin == 2) {
+		if (ld->plugin & HDMI_IMAGE_FLAG_MASK) {
 			if (!hdmi_ivt) {
 				hdmi_ivt++;
 				header_inc = 0x1c00 - 0x1000 + ld->max_length;
@@ -1332,7 +1336,7 @@ static int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 			header_max = ld->header_offset + header_inc + 0x400;
 			continue;
 		}
-		if (ld->plugin && (!curr->plug) && (!header_cnt)) {
+		if ((ld->plugin & PLUGIN_IMAGE_FLAG_MASK) && (!curr->plug) && (!header_cnt)) {
 			header_cnt++;
 			header_max = ld->header_offset + ld->max_length + 0x400;
 			printf("header_max=%x\n", header_max);
