@@ -683,7 +683,8 @@ void fetch_data(struct load_desc *ld, unsigned foffset, unsigned char **p, unsig
 	unsigned skip = foffset - ld->header_offset;
 	unsigned buf_cnt = ld->buf_cnt;
 
-	if (ld->curr->jump_mode && skip < sizeof(ld->writeable_header)) {
+	if ((ld->curr->jump_mode >= J_ADDR_HEADER) &&
+			(skip < sizeof(ld->writeable_header))) {
 		*p = &ld->writeable_header[skip];
 		*cnt = sizeof(ld->writeable_header) - skip;
 		return;
@@ -1416,13 +1417,16 @@ int DoIRomDownload(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 		ld.dladdr = curr->load_addr;
 		ld.header_addr = ld.dladdr + ld.max_length;
 		ld.header_offset = curr->load_skip + ld.max_length;
-		if (curr->jump_mode == J_ADDR) {
+		if (curr->jump_mode == J_ADDR_HEADER) {
 			unsigned cnt = ld.max_length;
 
 			init_header(dev, &ld);
 			/* If the header is at EOF, fsize needs increased */
 			ld.fsize += ld.max_length - cnt;
 			dbg_dump_long((unsigned char *)ld.writeable_header, ld.max_length - cnt, ld.header_addr, 0);
+		} else if (curr->jump_mode == J_ADDR_SCRIPT) {
+			ld.header_addr = curr->jump_addr;
+			ld.header_offset = 0;
 		}
 	}
 	if (ld.plugin && (!curr->plug)) {
