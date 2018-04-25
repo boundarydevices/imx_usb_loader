@@ -37,6 +37,7 @@
 
 #include "portable.h"
 #include "imx_sdp.h"
+#include "imx_sdp_simulation.h"
 #include "imx_loader.h"
 #include "imx_loader_config.h"
 
