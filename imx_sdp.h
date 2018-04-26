@@ -70,6 +70,7 @@ struct sdp_dev {
 #define HDR_UBOOT	3
 	unsigned char header_type;
 	unsigned dcd_addr;
+	unsigned max_dcd_size;
 	struct ram_area ram[8];
 	struct sdp_work *work;
 	/*
@@ -92,7 +93,7 @@ struct sdp_dev {
  * Section 8.7.2 of the i.MX6DQ/UL/SoloX RM:
  * The maximum size of the DCD limited to 1768 bytes.
  */
-#define HAB_MAX_DCD_SIZE 1768
+#define HAB_MAX_DCD_SIZE_DEFAULT 1768
 
 #define SDP_READ_REG     0x0101
 #define SDP_WRITE_REG    0x0202

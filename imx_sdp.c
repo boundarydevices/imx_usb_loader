@@ -424,7 +424,7 @@ static int write_dcd(struct sdp_dev *dev, struct dcd_v2 *dcd)
 	int err;
 	unsigned transferSize=0;
 
-	if (length > HAB_MAX_DCD_SIZE) {
+	if (length > dev->max_dcd_size) {
 		printf("DCD is too big (%d bytes)\n", length);
 		return -1;
 	}

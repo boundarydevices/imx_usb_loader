@@ -343,6 +343,13 @@ void parse_transfer_type(struct sdp_dev *usb, const char *filename, const char *
 	}
 	usb->max_transfer = get_val(&p, 10);
 	p = skip(p,',');
+	if (strncmp(p, "max_dcd", 7) == 0) {
+		p += 7;
+		usb->max_dcd_size = get_val(&p, 10);
+		p = skip(p,',');
+	} else {
+		usb->max_dcd_size = HAB_MAX_DCD_SIZE_DEFAULT;
+	}
 	usb->dcd_addr = get_val(&p, 16);
 	p = skip(p,',');
 	for (i = 0; i < 8; i++) {
