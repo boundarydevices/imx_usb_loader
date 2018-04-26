@@ -101,6 +101,7 @@ struct sdp_dev {
 #define SDP_ERROR_STATUS 0x0505
 #define SDP_WRITE_DCD    0x0a0a
 #define SDP_JUMP_ADDRESS 0x0b0b
+#define SDP_SKIP_DCD     0x0c0c
 
 #pragma pack (1)
 struct sdp_command {

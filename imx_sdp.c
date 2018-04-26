@@ -464,6 +464,42 @@ static int write_dcd(struct sdp_dev *dev, struct dcd_v2 *dcd)
 	return transferSize;
 }
 
+static int do_skip_ddr(struct sdp_dev *dev)
+{
+	int err;
+	struct sdp_command skip_dcd_command = {
+		.cmd = SDP_SKIP_DCD,
+		.addr = 0,
+		.format = 0,
+		.cnt = 0,
+		.data = 0,
+		.rsvd = 0x00};
+	unsigned int sec, status;
+
+	printf("skipping DCD\n");
+	err = do_command(dev, &skip_dcd_command, 5);
+	if (err)
+		return err;
+
+	err = do_response(dev, 3, &sec, false);
+	if (err)
+		return err;
+
+	err = do_response(dev, 4, &status, false);
+	if (err) {
+		printf("failed (security 0x%08x, status 0x%08x)\n", sec, status);
+		return err;
+	}
+
+	printf("skip DCD ");
+	if (status == BE32(0x900DD009UL))
+		printf("succeeded\n");
+	else
+		printf("failed\n");
+
+	return 0;
+}
+
 static int write_dcd_table_ivt(struct sdp_dev *dev, struct dcd_v2 *dcdhdr)
 {
 	int length = BE16(dcdhdr->header.length);
