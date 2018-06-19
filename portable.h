@@ -58,7 +58,11 @@ extern int debugmode;
 #ifdef __GNUC__
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 #define BE32(x) __builtin_bswap32(x)
-#define BE16(x) __builtin_bswap16(x)
+#define BE16(x) \
+({ \
+	typeof(x) __x = (x); \
+	(__x<<8 | __x>>8); \
+})
 #else
 #define BE32(x) x
 #define BE16(x) x
