@@ -61,7 +61,7 @@ extern int debugmode;
 #define BE16(x) \
 ({ \
 	typeof(x) __x = (x); \
-	(((__x << 8) & 0xffff) | ((__x >> 8) && 0xff)); \
+	(((__x << 8) & 0xffff) | ((__x >> 8) & 0xff)); \
 })
 #else
 #define BE32(x) x
