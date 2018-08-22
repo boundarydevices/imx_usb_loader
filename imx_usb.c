@@ -504,7 +504,8 @@ int do_autodetect_dev(char const *base_path, char const *conf_path,
 		printf("Trying to open device vid=0x%04x pid=0x%04x", mach->vid, mach->pid);
 		fflush(stdout);
 		for (retry = 0; retry < 50; retry++) {
-			h = libusb_open_device_with_vid_pid(NULL, mach->vid, mach->pid);
+			h = NULL;
+			err = libusb_open(dev, &h);
 			if (h)
 				break;
 
