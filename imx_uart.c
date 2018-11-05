@@ -285,7 +285,7 @@ void print_usage(void)
 		"   FILE [-lLOADADDR] [-sSIZE] ...\n"
 		"Multiple jobs can be configured. The first job is treated special, load\n"
 		"address, jump address, and length are read from the IVT header. If no job\n"
-		"is specified, the jobs definied in the target specific configuration file\n"
+		"is specified, the jobs defined in the target specific configuration file\n"
 		"is being used.\n");
 }
 
