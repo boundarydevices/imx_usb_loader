@@ -365,7 +365,7 @@ void print_usage(void)
 	printf("Usage: imx_usb [OPTIONS...] [JOBS...]\n"
 		"  e.g. imx_usb -v u-boot.imx\n"
 		"Load data on target connected to USB using serial download protocol. The target\n"
-		"type is detected using USB ID, a appropriate configuration file.\n"
+		"type is detected using USB ID, an appropriate configuration file.\n"
 		"\n"
 		"Where OPTIONS are\n"
 		"   -h --help		Show this help\n"
@@ -381,7 +381,7 @@ void print_usage(void)
 		"   FILE [-lLOADADDR] [-sSIZE] ...\n"
 		"Multiple jobs can be configured. The first job is treated special, load\n"
 		"address, jump address, and length are read from the IVT header. If no job\n"
-		"is specified, the jobs definied in the target specific configuration file\n"
+		"is specified, the jobs defined in the target specific configuration file\n"
 		"is being used.\n");
 }
 
