@@ -4,6 +4,7 @@ DESTDIR ?=
 prefix ?= /usr
 bindir ?= $(prefix)/bin
 sysconfdir ?= $(prefix)/etc
+rel_sysconfdir = $(shell realpath -m --relative-to=$(bindir) $(sysconfdir))
 
 BUILDHOST := $(shell uname -s)
 BUILDHOST := $(patsubst CYGWIN_%,CYGWIN,$(BUILDHOST))
@@ -16,7 +17,7 @@ else
 USBCFLAGS = -I/usr/include/libusb-1.0
 USBLDFLAGS = -L/usr/lib -lusb-1.0
 endif
-CONFCPPFLAGS = -DSYSCONFDIR='"$(sysconfdir)"'
+CONFCPPFLAGS = -DSYSCONFDIR='"$(sysconfdir)"' -DREL_SYSCONFDIR='"$(rel_sysconfdir)"'
 CFLAGS ?= -Wall -Wstrict-prototypes -Wno-trigraphs
 
 imx_usb.o : imx_usb.c imx_sdp.h imx_loader_config.h portable.h

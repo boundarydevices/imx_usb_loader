@@ -137,7 +137,7 @@ char const *conf_path_ok(char const *conf_path, char const *conf_file)
 char const *conf_file_name(char const *file, char const *base_path, char const *conf_path)
 {
 	char const *conf;
-	char cwd[PATH_MAX];
+	char path[PATH_MAX];
 
 	// First priority, conf path... (either -c, binary or /etc/imx-loader.d/)
 	dbg_printf("checking with conf_path %s\n", conf_path);
@@ -152,9 +152,16 @@ char const *conf_file_name(char const *file, char const *base_path, char const *
 		return conf;
 
 	// Third priority, working directory...
-	getcwd(cwd, PATH_MAX);
-	dbg_printf("checking with cwd %s\n", cwd);
-	conf = conf_path_ok(cwd, file);
+	getcwd(path, PATH_MAX);
+	dbg_printf("checking with cwd %s\n", path);
+	conf = conf_path_ok(path, file);
+	if (conf != NULL)
+		return conf;
+
+	// Fourth priority, conf path relative to base path...
+	snprintf(path, sizeof(path), "%s/%s", base_path, REL_SYSCONFDIR "/imx-loader.d");
+	dbg_printf("checking with rel_base_path %s\n", path);
+	conf = conf_path_ok(path, file);
 	if (conf != NULL)
 		return conf;
 
