@@ -88,11 +88,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\imx_loader_config.c" />
     <ClCompile Include="..\imx_sdp.c" />
     <ClCompile Include="..\imx_uart.c" />
     <ClCompile Include="getopt.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\imx_loader_config.h" />
     <ClInclude Include="..\imx_sdp.h" />
     <ClInclude Include="..\portable.h" />
     <ClInclude Include="getopt.h" />

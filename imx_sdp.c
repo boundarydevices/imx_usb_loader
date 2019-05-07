@@ -1363,7 +1363,7 @@ static int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 static int do_download(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 {
 	int ret;
-	struct load_desc ld = {};
+	struct load_desc ld = {0};
 
 	print_sdp_work(curr);
 	ld.curr = curr;
