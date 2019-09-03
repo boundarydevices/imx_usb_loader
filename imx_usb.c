@@ -461,7 +461,6 @@ int do_autodetect_dev(char const *base_path, char const *conf_path,
 	if (debugmode)
 		print_devs(devs);
 	dev = find_imx_dev(devs, &mach, list, bus, address);
-	libusb_free_device_list(devs, 1);
 	if (!dev) {
 		err = LIBUSB_ERROR_NO_DEVICE;
 		goto out_deinit_usb;
@@ -551,6 +550,7 @@ int do_autodetect_dev(char const *base_path, char const *conf_path,
 		if (!curr)
 			mach = mach->nextbatch;
 	}
+	libusb_free_device_list(devs, 1);
 
 out_deinit_usb:
 	libusb_exit(NULL);
