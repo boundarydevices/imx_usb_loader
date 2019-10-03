@@ -24,6 +24,7 @@ Two variants have been tested successfully to build imx_usb and imx_uart
 on Windows:
 1. MinGW (using the Microsoft C runtime)
 1. Visual Studio 2015
+1. Visual Studio 2017
 
 #### MinGW
 
