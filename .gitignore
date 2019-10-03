@@ -7,3 +7,9 @@ imx_uart.lds
 *.imx
 .*.swp
 tests/*.test
+msvc/.vs/
+msvc/*.user
+msvc/imx_uart_2015/
+msvc/imx_usb_2015/
+msvc/imx_uart_2017/
+msvc/imx_usb_2017/
