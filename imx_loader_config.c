@@ -158,12 +158,14 @@ char const *conf_file_name(char const *file, char const *base_path, char const *
 	if (conf != NULL)
 		return conf;
 
+#ifndef WIN32
 	// Fourth priority, conf path relative to base path...
 	snprintf(path, sizeof(path), "%s/%s", base_path, REL_SYSCONFDIR "/imx-loader.d");
 	dbg_printf("checking with rel_base_path %s\n", path);
 	conf = conf_path_ok(path, file);
 	if (conf != NULL)
 		return conf;
+#endif
 
 	printf("%s not found\n", file);
 	return NULL;
