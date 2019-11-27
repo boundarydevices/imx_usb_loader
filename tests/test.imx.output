@@ -7,7 +7,7 @@ vid=0x15a2 pid=0x0061 file_name=mx6_usb_work.conf
 vid=0x15a2 pid=0x0063 file_name=mx6_usb_work.conf
 vid=0x15a2 pid=0x0071 file_name=mx6_usb_work.conf
 vid=0x15a2 pid=0x007d file_name=mx6_usb_work.conf
-vid=0x15a2 pid=0x0080 file_name=mx6_usb_work.conf
+vid=0x15a2 pid=0x0080 file_name=mx6ull_usb_work.conf
 vid=0x1fc9 pid=0x0128 file_name=mx6_usb_work.conf
 vid=0x15a2 pid=0x0076 file_name=mx7_usb_work.conf
 vid=0x1fc9 pid=0x0126 file_name=mx7ulp_usb_work.conf

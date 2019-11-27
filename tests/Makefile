@@ -3,7 +3,7 @@ IMX_USB ?= ../imx_usb
 %.test: % FORCE
 	@echo Testing $*
 	@$(IMX_USB) -v -S 0x15a2:0x0061 $* > $@
-	@diff $*.output $@
+	@diff -u $*.output $@
 
 tests:	test.imx.test test-dcd.imx.test test-plugin.imx.test
 
