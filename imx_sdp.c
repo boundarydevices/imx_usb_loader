@@ -162,7 +162,7 @@ static int do_response(struct sdp_dev *dev, int report, unsigned int *result,
 	unsigned char tmp[64] =  { 0 };
 	int last_trans, err;
 
-	err = dev->transfer(dev, report, tmp, sizeof(tmp), 4, &last_trans);
+	err = dev->ops->transfer(dev, report, tmp, sizeof(tmp), 4, &last_trans);
 	if ((!silent && err) || debugmode)
 		printf("report %d in err=%i, last_trans=%i  %02x %02x %02x %02x\n",
 			report, err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3]);
@@ -180,14 +180,14 @@ static int do_response(struct sdp_dev *dev, int report, unsigned int *result,
 	return err;
 }
 
-static int do_command(struct sdp_dev *dev, struct sdp_command *cmd, int retry)
+static int do_command(struct sdp_dev *dev, unsigned char *cmd, int cmd_size, int retry)
 {
 	int last_trans, err = -4;
 
-	dbg_printf("sending command cmd=%04x\n", cmd->cmd);
+	dbg_printf("sending command cmd=%02x %02x %02x %02x\n", cmd[0], cmd[1],cmd[2],cmd[3]);
 	while (retry) {
-		err = dev->transfer(dev, 1, (unsigned char *)cmd,
-				    sizeof(*cmd), 0, &last_trans);
+		err = dev->ops->transfer(dev, 1, (unsigned char *)cmd,
+				cmd_size, 0, &last_trans);
 		if (err || debugmode)
 			printf("%s err=%i, last_trans=%i\n", __func__, err, last_trans);
 		if (!err)
@@ -201,13 +201,8 @@ static int do_command(struct sdp_dev *dev, struct sdp_command *cmd, int retry)
 
 static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, unsigned cnt)
 {
-	struct sdp_command read_reg_command = {
-		.cmd = SDP_READ_REG,
-		.addr = BE32(addr),
-		.format = 0x20,
-		.cnt = BE32(cnt),
-		.data = BE32(0),
-		.rsvd = 0x00};
+	unsigned char buf[MAX_PROTOCOL_SIZE];
+	int cmd_size;
 	int retry = 0;
 	int last_trans;
 	int err;
@@ -215,8 +210,13 @@ static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, 
 	unsigned char tmp[64];
 	unsigned int sec;
 
+	if (!dev->ops->fill_read_reg)
+		return 0;
+	cmd_size = dev->ops->fill_read_reg(buf, addr, cnt);
+	if (cmd_size <= 0)
+		return cmd_size;
 	dbg_printf("%s: addr=%08x, cnt=%08x\n", __func__, addr, cnt);
-	err = do_command(dev, &read_reg_command, 5);
+	err = do_command(dev, buf, cmd_size, 5);
 	if (err)
 		return err;
 
@@ -228,7 +228,7 @@ static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, 
 	retry = 0;
 	while (rem) {
 		tmp[0] = tmp[1] = tmp[2] = tmp[3] = 0;
-		err = dev->transfer(dev, 4, tmp, 64, rem > 64 ? 64 : rem, &last_trans);
+		err = dev->ops->transfer(dev, 4, tmp, 64, rem > 64 ? 64 : rem, &last_trans);
 		if (err) {
 			printf("r4 in err=%i, last_trans=%i  %02x %02x %02x %02x cnt=%d rem=%d\n", err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3], cnt, rem);
 			if (retry++ > 8)
@@ -256,20 +256,20 @@ static int read_memory(struct sdp_dev *dev, unsigned addr, unsigned char *dest, 
 
 static int write_memory(struct sdp_dev *dev, unsigned addr, unsigned val)
 {
-	struct sdp_command write_reg_command = {
-		.cmd = SDP_WRITE_REG,
-		.addr = BE32(addr),
-		.format = 0x20,
-		.cnt = BE32(0x00000004),
-		.data = BE32(val),
-		.rsvd = 0x00};
+	unsigned char buf[MAX_PROTOCOL_SIZE];
+	int cmd_size;
 	int last_trans;
 	int err = 0;
 	unsigned char tmp[64] = { 0 };
 	unsigned int sec;
 
+	if (!dev->ops->fill_write_reg)
+		return 0;
+	cmd_size = dev->ops->fill_write_reg(buf, addr, val);
+	if (cmd_size <= 0)
+		return cmd_size;
 	dbg_printf("%s: addr=%08x, val=%08x\n", __func__, addr, val);
-	err = do_command(dev, &write_reg_command, 5);
+	err = do_command(dev, buf, cmd_size, 5);
 	if (err)
 		return err;
 
@@ -277,7 +277,7 @@ static int write_memory(struct sdp_dev *dev, unsigned addr, unsigned val)
 	if (err)
 		return err;
 
-	err = dev->transfer(dev, 4, tmp, sizeof(tmp), 4, &last_trans);
+	err = dev->ops->transfer(dev, 4, tmp, sizeof(tmp), 4, &last_trans);
 	dbg_printf("report 4, err=%i, last_trans=%i  %02x %02x %02x %02x  %02x %02x %02x %02x\n",
 			err, last_trans, tmp[0], tmp[1], tmp[2], tmp[3],
 			tmp[4], tmp[5], tmp[6], tmp[7]);
@@ -313,18 +313,18 @@ static void perform_mem_work(struct sdp_dev *dev, struct mem_work *mem)
 
 static int do_status(struct sdp_dev *dev)
 {
-	struct sdp_command status_command = {
-		.cmd = SDP_ERROR_STATUS,
-		.addr = 0,
-		.format = 0,
-		.cnt = 0,
-		.data = 0,
-		.rsvd = 0};
+	unsigned char buf[MAX_PROTOCOL_SIZE];
+	int cmd_size;
 	unsigned int hab_security, status;
 	int retry = 0;
 	int err;
 
-	err = do_command(dev, &status_command, 5);
+	if (!dev->ops->fill_status)
+		return 0;
+	cmd_size = dev->ops->fill_status(buf);
+	if (cmd_size <= 0)
+		return cmd_size;
+	err = do_command(dev, buf, cmd_size, 5);
 	if (err)
 		return err;
 
@@ -362,7 +362,7 @@ static int do_data_transfer(struct sdp_dev *dev, unsigned char *buf, int len)
 
 	while (retry) {
 		cnt = get_min(len, max);
-		err = dev->transfer(dev, 2, buf, cnt, 0, &last_trans);
+		err = dev->ops->transfer(dev, 2, buf, cnt, 0, &last_trans);
 		if (!err) {
 			if (cnt > last_trans)
 				cnt = last_trans;
@@ -383,10 +383,12 @@ static int do_data_transfer(struct sdp_dev *dev, unsigned char *buf, int len)
 		printf("report 2 out err=%i, last_trans=%i len=0x%x max=0x%x retry=%i\n",
 			err, last_trans, len, max, retry);
 
-		if (max >= 16)
+		if (max >= 16) {
 			max >>= 1;
-		else
+			max &= ~0x03;
+		} else {
 			max <<= 1;
+		}
 
 		/* Wait a few ms before retrying transfer */
 		msleep(10);
@@ -399,16 +401,9 @@ static int do_data_transfer(struct sdp_dev *dev, unsigned char *buf, int len)
 
 static int write_dcd(struct sdp_dev *dev, struct dcd_v2 *dcd)
 {
-	struct sdp_command dl_command = {
-		.cmd = SDP_WRITE_DCD,
-		.addr = BE32(dev->dcd_addr),
-		.format = 0,
-		.cnt = 0,
-		.data = 0,
-		.rsvd = 0};
-
+	unsigned char buf[MAX_PROTOCOL_SIZE];
+	int cmd_size;
 	int length = BE16(dcd->header.length);
-
 	int err;
 	unsigned transferSize=0;
 
@@ -417,10 +412,14 @@ static int write_dcd(struct sdp_dev *dev, struct dcd_v2 *dcd)
 		return -1;
 	}
 
-	dl_command.cnt = BE32(length);
+	if (!dev->ops->fill_dl_dcd)
+		return 0;
+	cmd_size = dev->ops->fill_dl_dcd(buf, dev->dcd_addr, length);
+	if (cmd_size <= 0)
+		return cmd_size;
 
 	printf("loading DCD table @%#x\n", dev->dcd_addr);
-	err = do_command(dev, &dl_command, 5);
+	err = do_command(dev, buf, cmd_size, 5);
 	if (err)
 		return err;
 
@@ -810,20 +809,24 @@ static int verify_memory(struct sdp_dev *dev, struct load_desc *ld, unsigned fof
 static int load_file(struct sdp_dev *dev, struct load_desc *ld, unsigned foffset,
 		unsigned fsize, unsigned char type)
 {
-	struct sdp_command dl_command = {
-		.cmd = SDP_WRITE_FILE,
-		.addr = BE32(ld->dladdr),
-		.format = 0,
-		.cnt = BE32(fsize),
-		.data = 0,
-		.rsvd = type};
+	unsigned char buf[MAX_PROTOCOL_SIZE];
+	int cmd_size;
 	int err;
 	unsigned transferSize=0;
 	unsigned char *p;
 	unsigned cnt;
 	unsigned char combine_buf[1024];
 
-	do_command(dev, &dl_command, 5);
+	if (!dev->no_hid_cmd) {
+		if (!dev->ops->fill_write_file)
+			return 0;
+		cmd_size = dev->ops->fill_write_file(buf, ld->dladdr, fsize, type);
+		if (cmd_size <= 0)
+			return cmd_size;
+		dbg_printf("%s:cmd_size=%x\n", __func__, cmd_size);
+		dbg_dump_long(buf, cmd_size, 0, 0);
+		do_command(dev, buf, cmd_size, 5);
+	}
 
 	if (dev->mode == MODE_BULK) {
 		unsigned int sec;
@@ -851,7 +854,6 @@ static int load_file(struct sdp_dev *dev, struct load_desc *ld, unsigned foffset
 				cnt += next_cnt;
 			}
 			p = combine_buf;
-			dbg_dump_long(p, cnt, ld->dladdr + transferSize, 0);
 		} else {
 			cnt &= -sizeof(combine_buf);	/* round down to multiple of 1024 */
 		}
@@ -859,10 +861,15 @@ static int load_file(struct sdp_dev *dev, struct load_desc *ld, unsigned foffset
 			cnt = remaining;
 		if (!cnt)
 			break;
+		if (cnt > dev->max_transfer)
+			cnt = dev->max_transfer;
 		dbg_printf("%s:foffset=%x, cnt=%x, remaining=%x\n", __func__, foffset, cnt, remaining);
+		dbg_dump_long(p, cnt, ld->dladdr + transferSize, 0);
 		err = do_data_transfer(dev, p, cnt);
-		if (err < 0)
+		if (err < 0) {
+			printf("%s:foffset=%x, cnt=%x, remaining=%x, err=%d\n", __func__, foffset, cnt, remaining, err);
 			return err;
+		}
 		if (!err)
 			break;
 		transferSize += err;
@@ -885,7 +892,7 @@ static int load_file(struct sdp_dev *dev, struct load_desc *ld, unsigned foffset
 		else
 			printf("failed");
 		printf(" (security 0x%08x, status 0x%08x)\n", sec, status);
-	} else {
+	} else if (dev->mode == MODE_BULK) {
 		do_status(dev);
 	}
 	return transferSize;
@@ -893,18 +900,18 @@ static int load_file(struct sdp_dev *dev, struct load_desc *ld, unsigned foffset
 
 static int jump(struct sdp_dev *dev, unsigned int header_addr)
 {
+	unsigned char buf[MAX_PROTOCOL_SIZE];
+	int cmd_size;
 	int err;
-	struct sdp_command jump_command = {
-		.cmd = SDP_JUMP_ADDRESS,
-		.addr = BE32(header_addr),
-		.format = 0,
-		.cnt = 0,
-		.data = 0,
-		.rsvd = 0x00};
 	unsigned int sec, status;
 
+	if (!dev->ops->fill_jump)
+		return 0;
+	cmd_size = dev->ops->fill_jump(buf, header_addr);
+	if (cmd_size <= 0)
+		return cmd_size;
 	printf("jumping to 0x%08x\n", header_addr);
-	err = do_command(dev, &jump_command, 5);
+	err = do_command(dev, buf, cmd_size, 5);
 	if (err)
 		return err;
 

@@ -25,6 +25,8 @@
 #include "portable.h"
 #include "imx_sdp.h"
 #include "image.h"
+#include "sdp.h"
+#include "sdps.h"
 
 int get_val(const char** pp, int base)
 {
@@ -330,12 +332,29 @@ void parse_transfer_type(struct sdp_dev *usb, const char *filename, const char *
 		p += 3;
 		p = skip(p,',');
 		usb->mode = MODE_HID;
+		sdp_init_ops(usb);
 	} else if (strncmp(p, "bulk", 4) == 0) {
 		p += 4;
 		p = skip(p,',');
 		usb->mode = MODE_BULK;
+		sdp_init_ops(usb);
+	} else if (strncmp(p, "sdps", 4) == 0) {
+		p += 4;
+		p = skip(p,',');
+		usb->mode = MODE_SDPS;
+		sdps_init_ops(usb);
 	} else {
-		printf("%s: hid/bulk expected\n", filename);
+		printf("%s: hid/bulk/sdps expected\n", filename);
+	}
+	if (strncmp(p, "no-hid-cmd", 10) == 0) {
+		p += 10;
+		p = skip(p,',');
+		usb->no_hid_cmd = 1;
+	}
+	if (strncmp(p, "ep1", 3) == 0) {
+		p += 3;
+		p = skip(p,',');
+		usb->use_ep1 = 1;
 	}
 	if (strncmp(p, "old_header", 10) == 0) {
 		p += 10;

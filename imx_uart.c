@@ -357,6 +357,12 @@ int parse_opts(int argc, char * const *argv, char const **ttyfile,
 	return 0;
 }
 
+void sdps_init_ops(struct sdp_dev *dev)
+{
+	printf("sdps not supported\n");
+	exit(1);
+}
+
 #define ARRAY_SIZE(w) sizeof(w)/sizeof(w[0])
 
 int main(int argc, char * const argv[])
@@ -414,7 +420,7 @@ int main(int argc, char * const argv[])
 	if (err < 0)
 		return EXIT_FAILURE;
 
-	p_id->transfer = &transfer_uart;
+	p_id->ops->transfer = &transfer_uart;
 
 	// UART private pointer is TTY file descriptor...
 	p_id->priv = &uart_fd;

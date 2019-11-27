@@ -26,10 +26,10 @@ imx_usb.o : imx_usb.c imx_sdp.h imx_loader_config.h portable.h
 %.o : %.c imx_sdp.h imx_loader_config.h portable.h image.h
 	$(CC) -c $*.c -o $@ -pipe -ggdb $(CFLAGS) $(CONFCPPFLAGS)
 
-imx_usb: imx_usb.o imx_sdp.o imx_sdp_simulation.o imx_loader_config.o
+imx_usb: imx_usb.o imx_sdp.o imx_sdp_simulation.o imx_loader_config.o sdp.o sdps.o
 	$(CC) -o $@ $^ $(LDFLAGS) $(USBLDFLAGS)
 
-imx_uart: imx_uart.o imx_sdp.o imx_loader_config.o
+imx_uart: imx_uart.o imx_sdp.o imx_loader_config.o sdp.o
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 install: imx_usb imx_uart
@@ -45,8 +45,7 @@ uninstall:
 	rm -rf '$(DESTDIR)$(bindir)/imx_uart'
 
 clean:
-	rm -f imx_usb imx_uart imx_usb.o imx_uart.o imx_sdp.o \
-		imx_sdp_simulation.o imx_loader_config.o
+	rm -f imx_usb imx_uart *.o
 
 tests: imx_usb
 	$(MAKE) -C tests/ tests

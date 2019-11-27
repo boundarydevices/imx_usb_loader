@@ -211,7 +211,6 @@ static libusb_device *find_imx_dev(libusb_device **devs, struct mach_id **pp_id,
 	return NULL;
 }
 
-
 // HID Class-Specific Requests values. See section 7.2 of the HID specifications
 #define HID_GET_REPORT			0x01
 #define HID_GET_IDLE			0x02
@@ -243,31 +242,46 @@ static libusb_device *find_imx_dev(libusb_device **devs, struct mach_id **pp_id,
  *  (max size of 65 bytes with 1st byte of 0x04)
  *
  */
-int transfer_hid(struct sdp_dev *dev, int report, unsigned char *p, unsigned int cnt,
+static int transfer_hid(struct sdp_dev *dev, int report, unsigned char *p, unsigned int cnt,
 		unsigned int expected, int* last_trans)
 {
+	unsigned char tmp[1028];
 	int err;
 	struct libusb_device_handle *h = (struct libusb_device_handle *)dev->priv;
+
 	if (cnt > dev->max_transfer)
 		cnt = dev->max_transfer;
+	dbg_printf("report=%i, cnt=%x\n", report, cnt);
 #ifdef DEBUG
-	printf("report=%i\n", report);
 	if (report < 3)
 		dump_bytes(p, cnt, 0);
 #endif
-	unsigned char tmp[1028];
 	tmp[0] = (unsigned char)report;
 	if (report < 3) {
 		memcpy(&tmp[1], p, cnt);
 		if (report == 2)
 			cnt = dev->max_transfer;
-		err = libusb_control_transfer(h,
+		if (!dev->use_ep1) {
+			err = libusb_control_transfer(h,
 				CTRL_OUT,
 				HID_SET_REPORT,
 				(HID_REPORT_TYPE_OUTPUT << 8) | report,
 				0,
 				tmp, cnt + 1, 1000);
-		*last_trans = (err > 0) ? err - 1 : 0;
+			*last_trans = (err > 0) ? err - 1 : 0;
+		} else {
+			*last_trans = 0;
+			err = libusb_interrupt_transfer(h, 1,
+				tmp, cnt + 1, last_trans, 1000);
+			if (err < 0) {
+				printf("%s: read error(%i)(%s), cnt=%i, last_trans=%i, %02x %02x %02x %02x\n",
+					__func__, err, libusb_strerror(err),
+					cnt, *last_trans, p[0], p[1], p[2], p[3]);
+			}
+			if (*last_trans)
+				*last_trans -= 1;
+			dbg_printf("%s: last_trans=%d\n", __func__, *last_trans);
+		}
 		if (err > 0)
 			err = 0;
 	} else {
@@ -296,8 +310,6 @@ int transfer_hid(struct sdp_dev *dev, int report, unsigned char *p, unsigned int
 	return err;
 }
 
-
-
 /*
  * For Bulk class drivers, the device is configured as
  * EP0IN, EP0OUT control transfer
@@ -307,7 +319,7 @@ int transfer_hid(struct sdp_dev *dev, int report, unsigned char *p, unsigned int
  * (max packet size of 512 bytes)
  */
 
-int transfer_bulk(struct sdp_dev *dev, int report, unsigned char *p, unsigned int cnt,
+static int transfer_bulk(struct sdp_dev *dev, int report, unsigned char *p, unsigned int cnt,
 		unsigned int expected, int* last_trans)
 {
 	int err;
@@ -415,7 +427,7 @@ int do_simulation_dev(char const *base_path, char const *conf_path,
 	if (!p_id)
 		return -1;
 
-	p_id->transfer = &transfer_simulation;
+	p_id->ops->transfer = &transfer_simulation;
 	curr = p_id->work;
 
 	// Prefer work from command line, disable batch mode...
@@ -480,11 +492,8 @@ int do_autodetect_dev(char const *base_path, char const *conf_path,
 			break;
 		}
 
-		if (p_id->mode == MODE_HID)
-			p_id->transfer = &transfer_hid;
-		if (p_id->mode == MODE_BULK)
-			p_id->transfer = &transfer_bulk;
-
+		p_id->ops->transfer = (p_id->mode == MODE_BULK) ? &transfer_bulk :
+				&transfer_hid;
 		curr = p_id->work;
 
 		// Prefer work from command line, disable batch mode...

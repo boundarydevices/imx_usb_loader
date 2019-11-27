@@ -57,20 +57,16 @@ struct sdp_work {
 	unsigned load_skip;
 };
 
-struct sdp_dev {
-	char name[64];
-	unsigned short max_transfer;
-#define MODE_HID	0
-#define MODE_BULK	1
-	unsigned char mode;
-#define HDR_NONE	0
-#define HDR_MX51	1
-#define HDR_MX53	2
-#define HDR_UBOOT	3
-	unsigned char header_type;
-	unsigned dcd_addr;
-	struct ram_area ram[8];
-	struct sdp_work *work;
+struct sdp_dev;
+
+struct protocol_ops {
+	int (*fill_read_reg)(unsigned char *buf, unsigned addr, unsigned cnt);
+	int (*fill_write_reg)(unsigned char *buf, unsigned addr, unsigned cnt);
+	int (*fill_status)(unsigned char *buf);
+	int (*fill_dl_dcd)(unsigned char *buf, unsigned dcd_addr, int length);
+	int (*fill_write_file)(unsigned char *buf, unsigned dladdr, unsigned fsize, unsigned char type);
+	int (*fill_jump)(unsigned char *buf, unsigned header_addr);
+	int (*get_cmd_addr_cnt)(unsigned char *buf, uint16_t *cmd, uint32_t *addr, uint32_t *cnt);
 	/*
 	 * dev - SDP devce (this structure)
 	 * report - HID Report
@@ -81,7 +77,27 @@ struct sdp_dev {
 	 */
 	int (*transfer)(struct sdp_dev *dev, int report, unsigned char *p, unsigned int size,
 			unsigned int expected, int* last_trans);
+};
+
+struct sdp_dev {
+	char name[64];
+	unsigned short max_transfer;
+#define MODE_HID	0
+#define MODE_BULK	1
+#define MODE_SDPS	2
+	unsigned char mode;
+#define HDR_NONE	0
+#define HDR_MX51	1
+#define HDR_MX53	2
+#define HDR_UBOOT	3
+	unsigned char header_type;
+	unsigned dcd_addr;
+	struct ram_area ram[8];
+	struct sdp_work *work;
+	struct protocol_ops *ops;
 	void *priv;
+	unsigned char use_ep1;
+	unsigned char no_hid_cmd;
 };
 
 #define HAB_SECMODE_PROD 0x12343412
@@ -92,24 +108,15 @@ struct sdp_dev {
  * The maximum size of the DCD limited to 1768 bytes.
  */
 #define HAB_MAX_DCD_SIZE 1768
+#define MAX_PROTOCOL_SIZE 32
 
-#define SDP_READ_REG     0x0101
-#define SDP_WRITE_REG    0x0202
-#define SDP_WRITE_FILE   0x0404
-#define SDP_ERROR_STATUS 0x0505
-#define SDP_WRITE_DCD    0x0a0a
-#define SDP_JUMP_ADDRESS 0x0b0b
-
-#pragma pack (1)
-struct sdp_command {
-	uint16_t cmd;
-	uint32_t addr;
-	uint8_t format;
-	uint32_t cnt;
-	uint32_t data;
-	uint8_t rsvd;
-};
-#pragma pack ()
+#define CMD_INVAL	 0x00
+#define CMD_READ_REG     0x0101
+#define CMD_WRITE_REG    0x0202
+#define CMD_WRITE_FILE   0x0404
+#define CMD_ERROR_STATUS 0x0505
+#define CMD_WRITE_DCD    0x0a0a
+#define CMD_JUMP_ADDRESS 0x0b0b
 
 void dump_long(unsigned char *src, unsigned cnt, unsigned addr, unsigned skip);
 void dump_bytes(unsigned char *src, unsigned cnt, unsigned addr);

@@ -19,7 +19,9 @@ vid=0x1b67 pid=0x4fff file_name=mx6_usb_sdp_spl.conf
 vid=0x0525 pid=0xb4a4 file_name=mx6_usb_sdp_spl.conf
 vid=0x1fc9 pid=0x012b file_name=mx8mq_usb_work.conf
 vid=0x1fc9 pid=0x0134 file_name=mx8mm_usb_work.conf
+vid=0x1fc9 pid=0x013e file_name=mx8mn_usb_work.conf
 vid=0x3016 pid=0x1000 file_name=mx8mm_usb_sdp_spl.conf
+vid=0x3016 pid=0x1002 file_name=mx8mn_usb_sdp_spl.conf
 vid=0x3016 pid=0x1001 file_name=mx8mq_usb_sdp_spl.conf
 Simulating with vid=0x15a2 pid=0x0061
 config file <..//mx6_usb_work.conf>
