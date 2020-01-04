@@ -1269,7 +1269,6 @@ static int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 	int header_cnt = 0;
 	unsigned char *p;
 	int hdmi_ivt = 0;
-	int save_verify;
 	int found = 0;
 
 	while (1) {
@@ -1331,13 +1330,6 @@ static int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 				header_inc = 0x1c00 - 0x1000 + ld->max_length;
 				header_max = ld->header_offset + header_inc + 0x400;
 				continue;
-			}
-			if (curr->plug) {
-				save_verify = ld->verify;
-				/* Trying to verify hdmi firmware gives errors! */
-				ld->verify = 0;
-				ret = load_file_from_desc(dev, curr, ld);
-				ld->verify = save_verify;
 			}
 			header_inc = ld->dladdr - ld->header_addr + ld->max_length + 0x400;
 			header_max = ld->header_offset + header_inc + 0x400;
