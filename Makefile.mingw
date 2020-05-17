@@ -13,11 +13,11 @@ imx_usb.o : imx_usb.c imx_sdp.h portable.h
 %.o : %.c imx_sdp.h portable.h
 	$(CC) -c $*.c -o $@ -Wstrict-prototypes -Wno-trigraphs -pipe -ggdb $(CFLAGS)
 
-imx_usb: imx_usb.o imx_sdp.o
-	$(CC) -o $@ $@.o imx_sdp.o $(LDFLAGS) $(USBLDFLAGS)
+imx_usb: imx_usb.o imx_sdp.o imx_loader_config.o sdp.o sdps.o imx_sdp_simulation.o
+	$(CC) -o $@ $@.o imx_sdp.o imx_loader_config.o sdp.o sdps.o imx_sdp_simulation.o $(LDFLAGS) $(USBLDFLAGS)
 
-imx_uart: imx_uart.o imx_sdp.o
-	$(CC) -o $@ $@.o imx_sdp.o $(LDFLAGS)
+imx_uart: imx_uart.o imx_sdp.o imx_loader_config.o sdp.o
+	$(CC) -o $@ $@.o imx_sdp.o imx_loader_config.o sdp.o $(LDFLAGS)
 
 clean:
 	del /f /q imx_usb imx_uart imx_usb.o imx_uart.o imx_sdp.o
