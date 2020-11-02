@@ -216,6 +216,7 @@ void parse_mem_work(struct sdp_work *curr, const char *filename, const char *p)
 		i = MEM_TYPE_MODIFY;
 	} else {
 		printf("%s: syntax error: %s {%s}\n", filename, p, start);
+		return;
 	}
 	w.type = i;
 	i = 0;

@@ -113,7 +113,12 @@ int uart_connect(int *uart_fd, char const *tty, int usertscts, int associate, DC
 	key.c_cflag |= CLOCAL | CREAD;
 	if (usertscts)
 		key.c_cflag |= CRTSCTS;
-	key.c_cflag |= B115200;
+	cfsetspeed(&key, B115200);
+	if (err < 0) {
+		close(*uart_fd);
+		fprintf(stdout, "cfsetspeed(%d) failed: %s\n", B115200, strerror(errno));
+		return err;
+	}
 
 	// Enable blocking read, 0.5s timeout...
 	key.c_lflag &= ~ICANON; // Set non-canonical mode
@@ -182,6 +187,7 @@ int uart_connect(int *uart_fd, char const *tty, int usertscts, int associate, DC
 
 	// Association phase, send and receive 0x23454523
 	printf("starting associating phase");
+	fflush(stdout);
 	while(retry--) {
 #ifndef WIN32
 		// Flush again before retrying
