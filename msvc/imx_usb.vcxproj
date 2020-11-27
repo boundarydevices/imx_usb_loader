@@ -105,6 +105,8 @@
     <ClCompile Include="..\imx_sdp_simulation.c" />
     <ClCompile Include="..\imx_sdp.c" />
     <ClCompile Include="..\imx_usb.c" />
+    <ClCompile Include="..\sdp.c" />
+    <ClCompile Include="..\sdps.c" />
     <ClCompile Include="getopt.c" />
   </ItemGroup>
   <ItemGroup>
@@ -112,6 +114,8 @@
     <ClInclude Include="..\imx_sdp_simulation.h" />
     <ClInclude Include="..\imx_sdp.h" />
     <ClInclude Include="..\portable.h" />
+    <ClInclude Include="..\sdp.h" />
+    <ClInclude Include="..\sdps.h" />
     <ClInclude Include="getopt.h" />
   </ItemGroup>
   <ItemGroup>
