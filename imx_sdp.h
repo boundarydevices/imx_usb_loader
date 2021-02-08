@@ -51,6 +51,7 @@ struct sdp_work {
 #define J_HEADER	3
 #define J_HEADER2	4
 	unsigned char jump_mode;
+	unsigned char imx53_workaround;
 	unsigned load_addr;
 	unsigned jump_addr;
 	unsigned load_size;
