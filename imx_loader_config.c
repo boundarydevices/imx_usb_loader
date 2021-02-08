@@ -494,6 +494,10 @@ struct sdp_work *parse_cmd_args(int argc, char * const *argv)
 				i++;
 				continue;
 			}
+			if (c == 'w') {
+				w->imx53_workaround = 1;
+				continue;
+			}
 			fprintf(stderr, "Unknown option %s\n", p);
 			exit(1);
 		}

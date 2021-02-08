@@ -137,10 +137,12 @@ static void print_sdp_work(struct sdp_work *curr)
 	printf("filename %s\n", curr->filename);
 	printf("load_size %d bytes\n", curr->load_size);
 	printf("load_addr 0x%08x\n", curr->load_addr);
-	printf("dcd %u\n", curr->dcd);
+	printf("dcd %u\n", curr->dcd || curr->imx53_workaround == 1);
 	printf("clear_dcd %u\n", curr->clear_dcd);
 	printf("plug %u\n", curr->plug);
-	printf("jump_mode %d\n", curr->jump_mode);
+	printf("jump_mode %d\n", curr->imx53_workaround == 0
+			? curr->jump_mode
+			: curr->imx53_workaround == 3 ?  J_HEADER : 0);
 	printf("jump_addr 0x%08x\n", curr->jump_addr);
 	printf("== end work item\n");
 	return;
@@ -711,7 +713,9 @@ static void fetch_data(struct load_desc *ld, unsigned foffset, unsigned char **p
 	unsigned skip = foffset - ld->header_offset;
 	unsigned buf_cnt = ld->buf_cnt;
 
-	if ((ld->curr->jump_mode >= J_ADDR_HEADER) &&
+	if ((ld->curr->jump_mode >= J_ADDR_HEADER ||
+				ld->curr->imx53_workaround == 3) &&
+			ld->curr->imx53_workaround != 2 &&
 			(skip < sizeof(ld->writeable_header))) {
 		*p = &ld->writeable_header[skip];
 		*cnt = sizeof(ld->writeable_header) - skip;
@@ -951,6 +955,10 @@ static int load_file_from_desc(struct sdp_dev *dev, struct sdp_work *curr,
 	}
 
 	type = (curr->plug || curr->jump_mode) ? FT_APP : FT_LOAD_ONLY;
+	if (curr->imx53_workaround == 2)
+		type = FT_LOAD_ONLY;
+	else if (curr->imx53_workaround == 3)
+		type = FT_APP;
 	if (dev->mode == MODE_BULK && type == FT_APP) {
 		/*
 		 * There is no jump command.  boot ROM requires the download
@@ -1222,8 +1230,14 @@ static int get_dl_start(struct sdp_dev *dev, unsigned char *p,
 		unsigned offset;
 		struct flash_header_v2 *hdr = (struct flash_header_v2 *)p;
 
-		ld->dladdr = hdr->self_ptr;
-		ld->header_addr = hdr->self_ptr;
+		if (ld->curr->imx53_workaround == 2) {
+			ld->dladdr = hdr->start_addr;
+			ld->header_addr = hdr->start_addr;
+			ld->header_offset = hdr->start_addr - hdr->self_ptr;
+		} else {
+			ld->dladdr = hdr->self_ptr;
+			ld->header_addr = hdr->self_ptr;
+		}
 		p1 = (hdr->boot_data_ptr + cvt_dest_to_src);
 
 		if ((p1 < ld->buf_start) || ((p1 + 4) > file_end)) {
@@ -1231,7 +1245,8 @@ static int get_dl_start(struct sdp_dev *dev, unsigned char *p,
 			return -1;
 		}
 		bd = (struct boot_data *)p1;
-		ld->dladdr = bd->dest;
+		if (ld->curr->imx53_workaround != 2)
+			ld->dladdr = bd->dest;
 		ld->max_length = bd->image_len;
 		ld->plugin = bd->plugin;
 		offset = ((unsigned char *)&bd->plugin) - p;
@@ -1302,7 +1317,7 @@ static int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 			printf("!!get_dl_start returned %i\n", ret);
 			return ret;
 		}
-		if (curr->dcd) {
+		if (curr->dcd || curr->imx53_workaround == 1) {
 			ret = perform_dcd(dev, p, ld->buf_start, ld->buf_cnt);
 #if 1
 			clear_dcd_ptr(dev, ld->writeable_header);
@@ -1312,7 +1327,8 @@ static int process_header(struct sdp_dev *dev, struct sdp_work *curr,
 				return ret;
 			}
 			curr->dcd = 0;
-			if ((!curr->jump_mode) && (!curr->plug)) {
+			if ((!curr->jump_mode) && (!curr->plug) &&
+					curr->imx53_workaround != 1) {
 				printf("!!dcd done, nothing else requested\n");
 				return 0;
 			}
@@ -1390,11 +1406,14 @@ static int do_download(struct sdp_dev *dev, struct sdp_work *curr, int verify)
 	}
 	if (curr->load_size && (ld.max_length > curr->load_size))
 		ld.max_length = curr->load_size;
-	if (curr->dcd || curr->clear_dcd || curr->plug || (curr->jump_mode >= J_HEADER)) {
+	if (curr->dcd || curr->clear_dcd || curr->plug ||
+			curr->imx53_workaround || (curr->jump_mode >= J_HEADER)) {
 		ret = process_header(dev, curr, &ld);
 		if (ret < 0)
 			goto cleanup;
-		if ((!curr->jump_mode) && (!curr->plug)) {
+		if (!(curr->jump_mode || curr->plug ||
+				curr->imx53_workaround >= 2) ||
+				curr->imx53_workaround == 1) {
 			/*  nothing else requested */
 			ret = 0;
 			goto cleanup;
@@ -1460,8 +1479,27 @@ int do_work(struct sdp_dev *p_id, struct sdp_work **work, int verify)
 			break;
 		}
 
+		/*
+		 * When trying to upload and start a single *.imx file to an
+		 * iMX53 processor, this requires three separate steps for some
+		 * reason:
+		 *
+		 * 1. dcd, plug
+		 * 2. upload to actual start address, without header in front
+		 * 3. reupload normally, including start of the binary
+		 *
+		 * This takes care of all that by rurring the same step multiple
+		 * times.
+		 */
+		if (curr->imx53_workaround) {
+			if (curr->imx53_workaround < 3)
+				++curr->imx53_workaround;
+			else
+				curr->imx53_workaround = 0;
+		}
+
 		/* Check if more work is to do... */
-		if (!curr->next) {
+		if (curr->imx53_workaround || !curr->next) {
 			/*
 			 * If only one job, but with a plug-in is specified
 			 * reexecute the same job, but this time download the
@@ -1474,7 +1512,7 @@ int do_work(struct sdp_dev *p_id, struct sdp_work **work, int verify)
 			 */
 			if (curr->plug) {
 				curr->plug = 0;
-			} else {
+			} else if (!curr->imx53_workaround) {
 				curr = NULL;
 				break;
 			}

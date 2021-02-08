@@ -390,8 +390,10 @@ void print_usage(void)
 		"   -S --sim=VID:PID	Simulate a device of VID:PID\n"
 		"\n"
 		"And where [JOBS...] are\n"
-		"   FILE [-lLOADADDR] [-sSIZE] ...\n"
-		"Multiple jobs can be configured. The first job is treated special, load\n"
+		"   FILE [-lLOADADDR] [-sSIZE] [-w] ...\n"
+		"Multiple jobs can be configured. For each job, load address and size\n"
+		"can be specified. In addition, a workaround mode for iMX53 processors\n"
+		"can be enabled for each job. The first job is treated special, load\n"
 		"address, jump address, and length are read from the IVT header. If no job\n"
 		"is specified, the jobs defined in the target specific configuration file\n"
 		"is being used.\n");
