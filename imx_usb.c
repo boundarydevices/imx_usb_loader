@@ -50,6 +50,9 @@ struct mach_id {
 	char file_name[256];
 };
 
+/* used for hotplug event */
+static int device_found;
+
 static void print_devs(libusb_device **devs)
 {
 	int j, k, l;
@@ -182,6 +185,30 @@ static struct mach_id * imx_device(unsigned short vid, unsigned short pid, struc
 	return NULL;
 }
 
+
+int imx_hotplug_device_callback(struct libusb_context *ctx, struct libusb_device *dev,
+				libusb_hotplug_event event, void *user_data)
+{
+	struct libusb_device_descriptor desc;
+	struct mach_id *list = (struct mach_id *)user_data;
+	struct mach_id *p;
+
+	(void)libusb_get_device_descriptor(dev, &desc);
+
+	if (LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED == event) {
+
+		p = imx_device(desc.idVendor, desc.idProduct, list);
+		if (p)
+			device_found = 1;
+
+	} else if (LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT == event) {
+		p = imx_device(desc.idVendor, desc.idProduct, list);
+		if (p)
+			device_found = 0;
+	}
+
+	return 0;
+}
 
 static libusb_device *find_imx_dev(libusb_device **devs, struct mach_id **pp_id, struct mach_id *list, int bus, int address)
 {
@@ -382,6 +409,7 @@ void print_usage(void)
 		"Where OPTIONS are\n"
 		"   -h --help		Show this help\n"
 		"   -v --verify		Verify downloaded data\n"
+		"   -w --wait		Wait until a device is plugged (supported only on some platform)\n"
 		"   -d --debugmode	Enable debug logs\n"
 		"   -c --configdir=DIR	Reading configuration directory from non standard\n"
 		"			directory.\n"
@@ -446,12 +474,13 @@ int do_simulation_dev(char const *base_path, char const *conf_path,
 
 int do_autodetect_dev(char const *base_path, char const *conf_path,
 		struct mach_id *list, int verify, struct sdp_work *cmd_head,
-		int bus, int address)
+		int bus, int address, int wait)
 {
 	struct sdp_dev *p_id;
 	struct mach_id *mach;
 	libusb_device **devs;
 	libusb_device *dev;
+	libusb_hotplug_callback_handle callback_handle;
 	int err = 0;
 	ssize_t cnt;
 	struct sdp_work *curr = NULL;
@@ -464,6 +493,7 @@ int do_autodetect_dev(char const *base_path, char const *conf_path,
 	if (err < 0)
 		return err;
 
+matched:
 	cnt = libusb_get_device_list(NULL, &devs);
 	if (cnt < 0) {
 		err = LIBUSB_ERROR_NO_DEVICE;
@@ -473,9 +503,44 @@ int do_autodetect_dev(char const *base_path, char const *conf_path,
 	if (debugmode)
 		print_devs(devs);
 	dev = find_imx_dev(devs, &mach, list, bus, address);
-	if (!dev) {
+	if (!dev && !wait) {
 		err = LIBUSB_ERROR_NO_DEVICE;
 		goto out_deinit_usb;
+	}
+
+	if (!dev && wait) {
+		int vid, pid;
+
+		if (list->next) {
+			vid = LIBUSB_HOTPLUG_MATCH_ANY;
+			pid = LIBUSB_HOTPLUG_MATCH_ANY;
+		} else {
+			vid = list->vid;
+			pid = list->pid;
+		}
+
+		err = libusb_hotplug_register_callback(NULL, LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED | LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT,
+					0, vid, pid,
+                                        LIBUSB_HOTPLUG_MATCH_ANY, imx_hotplug_device_callback, list,
+                                        &callback_handle);
+
+		if (err != LIBUSB_SUCCESS) {
+			fprintf(stderr, "Error registering callback 0\n");
+			err = LIBUSB_ERROR_NO_DEVICE;
+			goto out_deinit_usb;
+		}
+
+		printf("Waiting for device to be plugged\n");
+
+		while (!device_found) {
+			libusb_handle_events(NULL);
+		}
+
+		libusb_hotplug_deregister_callback(NULL, callback_handle);
+		if (cnt)
+			libusb_free_device_list(devs, 1);
+
+		goto matched;
 	}
 
 	while (mach) {
@@ -572,6 +637,7 @@ static const struct option long_options[] = {
 	{"debugmode",	no_argument, 		0, 'd' },
 	{"verify",	no_argument, 		0, 'v' },
 	{"version",	no_argument, 		0, 'V' },
+	{"wait",	no_argument,		0, 'w' },
 	{"configdir",	required_argument, 	0, 'c' },
 	{"bus",		required_argument,	0, 'b' },
 	{"device",	required_argument, 	0, 'D' },
@@ -583,6 +649,7 @@ int main(int argc, char * const argv[])
 {
 	int err, c;
 	int verify = 0;
+	int wait = 0;
 	struct sdp_work *cmd_head = NULL;
 	char const *conf;
 	char const *base_path = get_base_path(argv[0]);
@@ -591,7 +658,7 @@ int main(int argc, char * const argv[])
 	int bus = -1;
 	int address = -1;
 
-	while ((c = getopt_long(argc, argv, "+hdvVc:b:D:S:", long_options, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "+hdvVwc:b:D:S:", long_options, NULL)) != -1) {
 		switch (c)
 		{
 		case 'h':
@@ -619,12 +686,20 @@ int main(int argc, char * const argv[])
 		case 'S':
 			sim_vidpid = optarg;
 			break;
+		case 'w':
+			wait = 1;
+			break;
 		}
 	}
 
 	if (optind < argc) {
 		// Parse optional job arguments...
 		cmd_head = parse_cmd_args(argc - optind, &argv[optind]);
+	}
+
+	if (wait && !libusb_has_capability(LIBUSB_CAP_HAS_HOTPLUG)) {
+		printf("Hotplug not supported by this build of libusb\n");
+		return EXIT_FAILURE;
 	}
 
 	// Get list of machines...
@@ -641,7 +716,7 @@ int main(int argc, char * const argv[])
 					cmd_head, sim_vidpid);
 	else
 		err = do_autodetect_dev(base_path, conf_path, list, verify,
-					cmd_head, bus, address);
+					cmd_head, bus, address, wait);
 	if (err < 0)
 		return EXIT_FAILURE;
 
