@@ -293,7 +293,7 @@ int parse_opts(int argc, char * const *argv, char const **ttyfile,
 		char const **conffile, int *verify, int *usertscts,
 		int *associate, struct sdp_work **cmd_head)
 {
-	char c;
+	int c;
 	*conffile = NULL;
 	*ttyfile = NULL;
 
