@@ -29,7 +29,7 @@
 #include <stdint.h>
 #include <getopt.h>
 
-#ifdef __FreeBSD__
+#if defined(__FreeBSD__) || defined(__APPLE__)
 #include <libusb.h>
 #else
 #include <libusb-1.0/libusb.h>
